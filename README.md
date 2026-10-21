@@ -34,6 +34,8 @@ It writes `out/plan.json` (wake time, first ring, latest time to request the rid
 probability of being on time, and the lookup-table and gut-rule alternatives) and
 `out/alarms.ics` (a first ring 30 minutes before the wake time and a final alarm at it).
 
+To get the alarms onto a phone, see `docs/phone.md`.
+
 Place names are fuzzy-matched to TLC taxi zones; when a name fits several zones you are
 asked to choose. Only precomputed routes work:
 
