@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m src.agent")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("index", help="build the flight index once")
+    sub.add_parser("demo", help="build the static demo page docs/demo/index.html")
     p = sub.add_parser("plan", help="plan a wake time")
     p.add_argument("--scenario", choices=["commute", "pickup"], required=True)
     p.add_argument("--from", dest="origin", required=True, help="pickup zone name")
@@ -49,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "index":
         from .index import build
         build()
+        return 0
+    if a.cmd == "demo":
+        from .demo import build as build_demo
+        build_demo()
         return 0
     if a.cmd == "flights":
         import pandas as pd

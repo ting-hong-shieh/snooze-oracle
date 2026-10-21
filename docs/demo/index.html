@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Snooze Oracle</title>
+<meta name="description" content="An alarm that lets you snooze only while you will still make it. Replay of August 2026 mornings in New York, precomputed with TabPFN-3.5.">
+<meta name="theme-color" content="#0b1020">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='22' fill='%23f6c96b'/%3E%3Cpath d='M32 20v14l9 6' stroke='%230b1020' stroke-width='5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg-0: #070b18;
+  --bg-1: #0d1430;
+  --dawn: #f6c96b;
+  --dawn-2: #f39a6b;
+  --ink: #eef1fb;
+  --ink-2: #b6bdd6;
+  --ink-3: #8189a8;
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-2: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.12);
+  --good: #6fd3a4;
+  --warn: #f39a6b;
+  --model: #7aa7ff;
+  --buffer: #c3c2b7;
+  --radius: 22px;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+* { box-sizing: border-box; }
+html { background: var(--bg-0); }
+html, body { margin: 0; }
+body {
+  min-height: 100vh;
+  color: var(--ink);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background:
+    radial-gradient(120% 60% at 50% 110%, rgba(243, 154, 107, 0.28), transparent 60%),
+    radial-gradient(80% 50% at 85% -10%, rgba(122, 167, 255, 0.18), transparent 60%),
+    linear-gradient(180deg, var(--bg-0), var(--bg-1));
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+header h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+header p { margin: 6px 0 0; color: var(--ink-2); max-width: 46ch; }
+.replay {
+  display: inline-block; margin-top: 14px;
+  padding: 6px 12px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line);
+  color: var(--ink-2); font-size: 13px;
+}
+.replay b { color: var(--dawn); font-weight: 600; }
+
+/* scenario chips */
+.group-label { margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  flex: 1 1 160px; max-width: 100%; border: 1px solid var(--line); background: var(--glass); color: var(--ink);
+  border-radius: 14px; padding: 10px 14px; text-align: left; cursor: pointer; font: inherit;
+  transition: background .2s, border-color .2s, transform .1s;
+}
+.chip:hover { background: var(--glass-2); }
+.chip:active { transform: scale(0.98); }
+.chip[aria-pressed="true"] { border-color: var(--dawn); background: rgba(246, 201, 107, 0.12); }
+.chip .t { display: block; font-size: 14px; font-weight: 600; }
+.chip .s { display: block; font-size: 12px; color: var(--ink-3); }
+
+.grid { display: grid; gap: 18px; margin-top: 18px; grid-template-columns: 1fr; }
+@media (min-width: 860px) { .grid { grid-template-columns: 400px 1fr; align-items: start; } }
+
+/* phone */
+.phone {
+  position: relative; border-radius: 40px; padding: 26px 22px 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  overflow: hidden;
+}
+.phone::before {
+  content: ""; position: absolute; inset: -40% -20% auto; height: 70%;
+  background: radial-gradient(closest-side, rgba(246, 201, 107, 0.0), transparent);
+  transition: background .6s;
+  pointer-events: none;
+}
+.phone.ringing::before { background: radial-gradient(closest-side, rgba(246, 201, 107, 0.35), transparent); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.status { font-size: 13px; color: var(--ink-3); text-align: center; min-height: 20px; }
+.clock {
+  font-variant-numeric: tabular-nums; text-align: center; font-weight: 200;
+  font-size: clamp(64px, 22vw, 96px); letter-spacing: -0.04em; line-height: 1; margin: 10px 0 4px;
+}
+.phone.ringing .clock { color: var(--dawn); }
+.subclock { text-align: center; color: var(--ink-2); font-size: 14px; min-height: 22px; }
+.pon {
+  margin: 16px auto 0; width: fit-content; padding: 6px 14px; border-radius: 999px;
+  font-variant-numeric: tabular-nums; font-size: 14px; background: var(--glass); border: 1px solid var(--line);
+}
+.pon b { font-weight: 700; }
+.pon.ok b { color: var(--good); }
+.pon.bad b { color: var(--warn); }
+.buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 22px; }
+.btn {
+  appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 600; font-size: 17px;
+  border-radius: 20px; padding: 18px 12px; color: var(--ink); background: var(--glass-2);
+  border: 1px solid var(--line); transition: transform .1s, background .2s, opacity .2s;
+  min-height: 64px;
+}
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn.primary { background: linear-gradient(180deg, var(--dawn), var(--dawn-2)); color: #1a1205; border: 0; }
+.btn:disabled { opacity: .38; cursor: not-allowed; }
+.btn small { display: block; font-weight: 500; font-size: 12px; opacity: .8; }
+.message {
+  margin-top: 16px; font-size: 14px; color: var(--ink-2); min-height: 44px; text-align: center;
+}
+.message.refused { color: var(--warn); }
+.controls { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 10px; flex-wrap: wrap; }
+.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--glass); border: 1px solid var(--line); }
+.seg button {
+  appearance: none; border: 0; background: transparent; color: var(--ink-2); font: inherit; font-size: 13px;
+  padding: 6px 10px; border-radius: 9px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--glass-2); color: var(--ink); }
+.link { appearance: none; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* cards */
+.card {
+  border-radius: var(--radius); padding: 20px; background: var(--glass); border: 1px solid var(--line);
+}
+.card h2 { margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 600; }
+.plan-head { font-size: 15px; color: var(--ink-2); margin: 0 0 12px; }
+.plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.kv .k { font-size: 12px; color: var(--ink-3); }
+.kv .v { font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.kv .v.big { color: var(--dawn); }
+.compare { margin-top: 14px; font-size: 14px; color: var(--ink-2); }
+.stack { display: grid; gap: 18px; }
+svg text { font-family: inherit; }
+.bars { display: grid; gap: 10px; margin-top: 8px; }
+.bar { display: grid; grid-template-columns: 9.5em 1fr 3.4em; gap: 10px; align-items: center; font-size: 14px; }
+.bar .track { display: block; height: 12px; border-radius: 6px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.bar .fill { display: block; height: 100%; border-radius: 6px; }
+.bar .num { text-align: right; font-variant-numeric: tabular-nums; }
+.fine { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
+footer { margin-top: 28px; font-size: 13px; color: var(--ink-3); }
+footer a, .card a { color: var(--ink-2); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { .phone.ringing::before { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Snooze Oracle</h1>
+    <p>An alarm that works out the night before how late you can get up, and lets you snooze only while you will still make it.</p>
+    <div class="replay">Replay of <b id="replayDate"></b> in New York · precomputed with TabPFN-3.5</div>
+  </header>
+
+  <div class="group-label">Commute by Uber</div>
+  <div class="chips" id="chipsCommute"></div>
+  <div class="group-label">Pick someone up at the airport</div>
+  <div class="chips" id="chipsPickup"></div>
+
+  <div class="grid">
+    <section class="phone" id="phone" aria-label="Simulated alarm">
+      <div class="status" id="status">Alarm set</div>
+      <div class="clock" id="clock">--:--</div>
+      <div class="subclock" id="subclock"></div>
+      <div class="pon" id="pon">P(on time) if you get up now: <b>–</b></div>
+      <div class="buttons">
+        <button class="btn" id="snooze" disabled>Snooze<small id="snoozeHint">&nbsp;</small></button>
+        <button class="btn primary" id="up">Start<small id="upHint">first ring</small></button>
+      </div>
+      <div class="message" id="message" aria-live="polite"></div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Clock speed">
+          <button data-speed="1" aria-pressed="false">Real time</button>
+          <button data-speed="60" aria-pressed="true">1 min/s</button>
+          <button data-speed="300" aria-pressed="false">5 min/s</button>
+        </div>
+        <button class="link" id="reset">Reset</button>
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="card">
+        <h2>The plan, made the night before</h2>
+        <p class="plan-head" id="planHead"></p>
+        <div class="plan-grid" id="planGrid"></div>
+        <p class="compare" id="planCompare"></p>
+      </section>
+
+      <section class="card">
+        <h2>Chance of being on time, by wake-up time</h2>
+        <svg id="chart" viewBox="0 0 560 220" width="100%" role="img" aria-label="Probability of being on time by wake-up time"></svg>
+      </section>
+
+      <section class="card">
+        <h2>How this route did in the August backtest</h2>
+        <div class="bars" id="bars"></div>
+        <p class="fine" id="btNote"></p>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <p>The data ends in August 2026, so every morning here is a replay that uses only what was known the night before. Nothing on this page calls a model: the curves were computed with TabPFN-3.5 on my computer and saved into the page. TabPFN-3.5's weights are under Prior Labs' non-commercial license and are not included.</p>
+    <p><a href="https://github.com/ting-hong-shieh/snooze-oracle">Code and backtests on GitHub</a> · <a href="https://github.com/ting-hong-shieh/snooze-oracle/blob/main/docs/commute_backtest.md">commute backtest</a> · <a href="https://github.com/ting-hong-shieh/snooze-oracle/blob/main/docs/backtest.md">airport backtest</a></p>
+  </footer>
+</div>
+
+<script id="data" type="application/json">{"replay_date":"2026-08-12","threshold":0.9,"snooze_max_min":9,"first_ring_min":30,"prep_min":15.0,"scenarios":[{"id":"commute-235->161","scenario":"commute","kind":"sparse","title":"University Heights \u2192 Midtown Center","subtitle":"Uber to a 09:00 meeting","deadline":"09:00","plan":{"scenario":"commute","from":{"zone":235,"name":"University Heights/Morris Heights"},"to":{"zone":161,"name":"Midtown Center"},"deadline":"09:00","wake_time":"07:44","first_ring":"07:14","latest_request_time":"08:00","p_on_time_at_wake":0.904,"alternatives":{"lookup":{"wake_time":"07:54","p_on_time_tabpfn":0.627},"gut_rule":{"buffer_min":10,"wake_time":"07:57","p_on_time_tabpfn":0.508}}},"curve":{"start":"06:59","p":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9995,0.9995,0.9995,0.9995,0.999,0.998,0.9975,0.997,0.996,0.993,0.9905,0.9875,0.9845,0.981,0.9745,0.9675,0.9565,0.948,0.9375,0.9285,0.917,0.9045,0.887,0.87,0.844,0.822,0.7925,0.768,0.7365,0.7075,0.671,0.6275,0.588,0.5515,0.514,0.472,0.43,0.39,0.35,0.303,0.2635,0.2325,0.1955,0.1715,0.144,0.115,0.099]},"backtest":{"buffer_min":10,"buffer":{"late":0.2286,"mornings":63},"tabpfn":{"late":0.127,"mornings":63},"reality":"real trips on the same route on any August weekday (sparse route)"}},{"id":"commute-52->163","scenario":"commute","kind":"sparse","title":"Cobble Hill \u2192 Midtown North","subtitle":"Uber to a 09:00 meeting","deadline":"09:00","plan":{"scenario":"commute","from":{"zone":52,"name":"Cobble Hill"},"to":{"zone":163,"name":"Midtown North"},"deadline":"09:00","wake_time":"07:45","first_ring":"07:15","latest_request_time":"08:02","p_on_time_at_wake":0.906,"alternatives":{"lookup":{"wake_time":"07:50","p_on_time_tabpfn":0.784},"gut_rule":{"buffer_min":10,"wake_time":"07:53","p_on_time_tabpfn":0.68}}},"curve":{"start":"07:00","p":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9995,0.9995,0.9995,0.9995,0.9995,0.9985,0.9975,0.9975,0.9965,0.994,0.992,0.9885,0.986,0.982,0.977,0.971,0.9615,0.9515,0.94,0.932,0.9195,0.906,0.889,0.868,0.8465,0.816,0.784,0.7545,0.717,0.6815,0.6455,0.597,0.552,0.509,0.467,0.422,0.371,0.3235,0.2765,0.2365,0.204,0.1685,0.139,0.1125,0.0955,0.075,0.0565]},"backtest":{"buffer_min":10,"buffer":{"late":0.1752,"mornings":105},"tabpfn":{"late":0.0495,"mornings":105},"reality":"real trips on the same route on any August weekday (sparse route)"}},{"id":"commute-231->161","scenario":"commute","kind":"dense","title":"TriBeCa \u2192 Midtown Center","subtitle":"Uber to a 09:00 meeting","deadline":"09:00","plan":{"scenario":"commute","from":{"zone":231,"name":"TriBeCa/Civic Center"},"to":{"zone":161,"name":"Midtown Center"},"deadline":"09:00","wake_time":"07:58","first_ring":"07:28","latest_request_time":"08:15","p_on_time_at_wake":0.907,"alternatives":{"lookup":{"wake_time":"07:58","p_on_time_tabpfn":0.907},"gut_rule":{"buffer_min":10,"wake_time":"08:00","p_on_time_tabpfn":0.863}}},"curve":{"start":"07:13","p":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9995,0.9995,0.9995,0.9995,0.9985,0.998,0.996,0.9945,0.992,0.99,0.984,0.979,0.9725,0.962,0.95,0.937,0.922,0.907,0.887,0.863,0.834,0.797,0.7585,0.718,0.6825,0.6415,0.588,0.5435,0.4885,0.44,0.3905,0.3275,0.2795,0.234,0.191,0.1565,0.126,0.101,0.0815,0.062,0.046,0.0335,0.0235]},"backtest":{"buffer_min":10,"buffer":{"late":0.0495,"mornings":105},"tabpfn":{"late":0.0324,"mornings":105},"reality":"real trips on the same route and date"}},{"id":"commute-112->162","scenario":"commute","kind":"dense","title":"Greenpoint \u2192 Midtown East","subtitle":"Uber to a 09:00 meeting","deadline":"09:00","plan":{"scenario":"commute","from":{"zone":112,"name":"Greenpoint"},"to":{"zone":162,"name":"Midtown East"},"deadline":"09:00","wake_time":"08:02","first_ring":"07:32","latest_request_time":"08:19","p_on_time_at_wake":0.909,"alternatives":{"lookup":{"wake_time":"08:02","p_on_time_tabpfn":0.909},"gut_rule":{"buffer_min":10,"wake_time":"08:05","p_on_time_tabpfn":0.852}}},"curve":{"start":"07:17","p":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9995,0.9995,0.9995,0.9995,0.9995,0.999,0.9985,0.9975,0.9975,0.9965,0.994,0.9925,0.9895,0.9865,0.9825,0.9785,0.973,0.9655,0.9535,0.9445,0.934,0.9245,0.9095,0.894,0.872,0.852,0.824,0.7885,0.756,0.7185,0.685,0.646,0.592,0.548,0.503,0.4515,0.4035,0.3455,0.2995,0.2445,0.2055,0.1665,0.1355,0.11,0.086,0.068,0.0525,0.0345]},"backtest":{"buffer_min":10,"buffer":{"late":0.0819,"mornings":105},"tabpfn":{"late":0.0495,"mornings":105},"reality":"real trips on the same route and date"}},{"id":"pickup-DL709","scenario":"pickup","kind":"red-eye","title":"DL709 SAN \u2192 JFK","subtitle":"pick someone up, leaving from South Ozone Park","deadline":"06:27","plan":{"scenario":"pickup","flight":{"carrier":"DL","number":709,"origin":"SAN","airport":"JFK","scheduled_arrival":"06:27","p_cancel":0.026},"from":{"zone":216,"name":"South Ozone Park"},"exit_buffer_min":20.0,"wake_time":"05:33","first_ring":"05:03","latest_request_time":"05:49","p_on_time_at_wake":0.909,"alternatives":{"lookup":{"wake_time":"05:39","p_on_time_tabpfn":0.829},"gut_rule":{"buffer_min":30,"wake_time":"05:44","p_on_time_tabpfn":0.736}}},"curve":{"start":"04:48","p":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9995,0.999,0.999,0.999,0.999,0.9985,0.9965,0.996,0.995,0.9935,0.993,0.9915,0.991,0.9885,0.9865,0.9845,0.9815,0.9785,0.972,0.969,0.9635,0.9575,0.9465,0.9395,0.9325,0.9195,0.909,0.8985,0.886,0.875,0.8635,0.848,0.829,0.814,0.797,0.779,0.76,0.7425,0.722,0.6995,0.6765,0.6565,0.633,0.6095,0.588,0.5635,0.5385,0.5195,0.496,0.474,0.4565,0.436]},"backtest":{"buffer_min":30,"buffer":{"late":0.1179,"mornings":1250},"tabpfn":{"late":0.1034,"mornings":1250},"reality":"actual BTS arrival and real August trips on the same route within an hour, every flight landing 04:00-07:59"}},{"id":"pickup-YX4451","scenario":"pickup","kind":"short-haul","title":"YX4451 RIC \u2192 LGA","subtitle":"pick someone up, leaving from Astoria","deadline":"07:07","plan":{"scenario":"pickup","flight":{"carrier":"YX","number":4451,"origin":"RIC","airport":"LGA","scheduled_arrival":"07:07","p_cancel":0.037},"from":{"zone":7,"name":"Astoria"},"exit_buffer_min":20.0,"wake_time":"06:31","first_ring":"06:01","latest_request_time":"06:48","p_on_time_at_wake":0.907,"alternatives":{"lookup":{"wake_time":"06:32","p_on_time_tabpfn":0.884},"gut_rule":{"buffer_min":30,"wake_time":"06:25","p_on_time_tabpfn":0.969}}},"curve":{"start":"05:46","p":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.9995,0.9985,0.998,0.996,0.994,0.9925,0.991,0.9885,0.9855,0.9825,0.976,0.969,0.9595,0.9465,0.9345,0.9245,0.9075,0.8845,0.865,0.845,0.8255,0.798,0.771,0.7375,0.694,0.658,0.622,0.585,0.5465,0.5095,0.4765,0.441,0.4055,0.374,0.348,0.316,0.2835,0.257,0.2335,0.219,0.19,0.1755]},"backtest":{"buffer_min":30,"buffer":{"late":0.0492,"mornings":325},"tabpfn":{"late":0.1175,"mornings":325},"reality":"actual BTS arrival and real August trips on the same route within an hour, every flight landing 04:00-07:59"}}]}</script>
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById("data").textContent);
+  const $ = (id) => document.getElementById(id);
+  const TH = D.threshold;
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const toMin = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+  const fmt = (min) => {
+    const m = ((Math.floor(min) % 1440) + 1440) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  };
+  $("replayDate").textContent = new Date(D.replay_date + "T12:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  let S = null, st = null, speed = 60, raf = 0, last = 0;
+
+  function pAt(t) {
+    const i = Math.round(t) - S.c0;
+    const p = S.curve.p;
+    return p[Math.max(0, Math.min(p.length - 1, i))];
+  }
+  function safeSnooze(now) {
+    for (let s = D.snooze_max_min; s >= 1; s--) if (pAt(now + s) >= TH) return s;
+    return 0;
+  }
+
+  function chip(sc) {
+    const b = document.createElement("button");
+    b.className = "chip"; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<span class="t"></span><span class="s"></span>`;
+    b.querySelector(".t").textContent = sc.title;
+    b.querySelector(".s").textContent = sc.scenario === "commute"
+      ? `${sc.kind === "sparse" ? "rare route" : "busy route"} · meeting ${sc.deadline}`
+      : `${sc.kind} · lands ${sc.deadline}`;
+    b.onclick = () => select(sc.id);
+    b.dataset.id = sc.id;
+    return b;
+  }
+  D.scenarios.forEach((sc) => $(sc.scenario === "commute" ? "chipsCommute" : "chipsPickup").appendChild(chip(sc)));
+
+  function select(id) {
+    S = D.scenarios.find((x) => x.id === id);
+    S.c0 = toMin(S.curve.start);
+    S.wake = toMin(S.plan.wake_time);
+    document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.id === id)));
+    renderPlan(); renderBars(); reset();
+  }
+
+  function renderPlan() {
+    const p = S.plan;
+    $("planHead").textContent = S.scenario === "commute"
+      ? `${p.from.name} to ${p.to.name}, meeting at ${p.deadline}. Getting ready takes about ${D.prep_min} minutes.`
+      : `${p.flight.carrier}${p.flight.number} from ${p.flight.origin} is scheduled to land at ${p.flight.airport} at ${p.flight.scheduled_arrival}. You leave from ${p.from.name}; the passenger needs about ${p.exit_buffer_min} minutes to get off the plane and collect bags.`;
+    const kv = [
+      ["Latest safe wake-up", p.wake_time, true],
+      ["First ring", p.first_ring],
+      ["Request the Uber by", p.latest_request_time],
+      ["On time if you get up at " + p.wake_time, pct(p.p_on_time_at_wake)],
+    ];
+    if (S.scenario === "pickup") kv.push(["Chance the flight is cancelled", pct(p.flight.p_cancel)]);
+    $("planGrid").innerHTML = "";
+    kv.forEach(([k, v, big]) => {
+      const d = document.createElement("div"); d.className = "kv";
+      d.innerHTML = `<div class="k"></div><div class="v${big ? " big" : ""}"></div>`;
+      d.querySelector(".k").textContent = k; d.querySelector(".v").textContent = v;
+      $("planGrid").appendChild(d);
+    });
+    const g = p.alternatives.gut_rule, l = p.alternatives.lookup;
+    $("planCompare").textContent = `A fixed ${g.buffer_min}-minute buffer would wake you at ${g.wake_time}: on time ${pct(g.p_on_time_tabpfn)} of the time. A lookup table of past trips says ${l.wake_time} (${pct(l.p_on_time_tabpfn)}).`;
+  }
+
+  function renderBars() {
+    const b = S.backtest;
+    const rows = [
+      [`Fixed ${b.buffer_min}-min buffer`, b.buffer.late, "var(--buffer)"],
+      ["TabPFN alarm", b.tabpfn.late, "var(--model)"],
+    ];
+    const max = Math.max(0.3, ...rows.map((r) => r[1]));
+    $("bars").innerHTML = "";
+    rows.forEach(([label, v, col]) => {
+      const d = document.createElement("div"); d.className = "bar";
+      d.innerHTML = `<span></span><span class="track"><span class="fill"></span></span><span class="num"></span>`;
+      d.children[0].textContent = label;
+      d.querySelector(".fill").style.width = `${(v / max) * 100}%`;
+      d.querySelector(".fill").style.background = col;
+      d.querySelector(".num").textContent = `${(v * 100).toFixed(1)}%`;
+      $("bars").appendChild(d);
+    });
+    const where = S.scenario === "commute" ? "this route" : `pickups from ${S.plan.from.name} at ${S.plan.flight.airport}`;
+    $("btNote").textContent = `Late rate on ${where}, ${b.tabpfn.mornings} simulated mornings in August 2026. Reality: ${b.reality}.`;
+  }
+
+  function renderChart() {
+    const svg = $("chart"), W = 560, H = 220, L = 40, R = 12, T = 14, B = 30;
+    const p = S.curve.p, n = p.length;
+    const x = (i) => L + (i / (n - 1)) * (W - L - R);
+    const y = (v) => T + (1 - v) * (H - T - B);
+    const pts = p.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const iw = S.wake - S.c0, ir = iw - D.first_ring_min, inow = st ? st.now - S.c0 : ir;
+    let ticks = "";
+    for (let i = 0; i < n; i++) {
+      const t = S.c0 + i;
+      if (t % 15 === 0) ticks += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}" stroke="rgba(255,255,255,.06)"/><text x="${x(i)}" y="${H - 10}" fill="#8189a8" font-size="11" text-anchor="middle">${fmt(t)}</text>`;
+    }
+    svg.innerHTML = `
+      ${ticks}
+      ${[0, 0.5, 1].map((v) => `<text x="${L - 8}" y="${y(v) + 4}" fill="#8189a8" font-size="11" text-anchor="end">${v * 100}%</text>`).join("")}
+      <line x1="${L}" x2="${W - R}" y1="${y(TH)}" y2="${y(TH)}" stroke="#f6c96b" stroke-dasharray="4 4" stroke-width="1"/>
+      <text x="${W - R}" y="${y(TH) - 6}" fill="#f6c96b" font-size="11" text-anchor="end">90%</text>
+      <rect x="${x(ir)}" y="${T}" width="${x(iw) - x(ir)}" height="${H - T - B}" fill="rgba(246,201,107,.08)"/>
+      <polyline points="${pts}" fill="none" stroke="#7aa7ff" stroke-width="2.5" stroke-linejoin="round"/>
+      <line x1="${x(Math.max(0, Math.min(n - 1, inow)))}" x2="${x(Math.max(0, Math.min(n - 1, inow)))}" y1="${T}" y2="${H - B}" stroke="#eef1fb" stroke-width="1.5"/>
+      <circle cx="${x(Math.max(0, Math.min(n - 1, inow)))}" cy="${y(pAt(S.c0 + Math.round(inow)))}" r="5" fill="#eef1fb" stroke="#0b1020" stroke-width="2"/>
+      <text x="${x(iw)}" y="${T + 12}" fill="#f6c96b" font-size="11" text-anchor="middle">wake ${S.plan.wake_time}</text>`;
+  }
+
+  function setState(next) { st = Object.assign(st || {}, next); render(); }
+
+  function render() {
+    const ph = $("phone");
+    $("clock").textContent = fmt(st.now);
+    const p = pAt(st.now);
+    $("pon").className = "pon " + (p >= TH ? "ok" : "bad");
+    $("pon").innerHTML = `P(on time) if you get up now: <b>${pct(p)}</b>`;
+    ph.classList.toggle("ringing", st.mode === "ringing");
+    const sn = $("snooze"), up = $("up");
+    if (st.mode === "idle") {
+      $("status").textContent = `Alarm set for ${fmt(st.now)}`;
+      $("subclock").textContent = `Latest safe wake-up ${S.plan.wake_time}`;
+      sn.disabled = true; $("snoozeHint").innerHTML = "&nbsp;";
+      up.firstChild.textContent = "Start"; $("upHint").textContent = "first ring";
+    } else if (st.mode === "ringing") {
+      const s = safeSnooze(st.now);
+      $("status").textContent = st.snoozes
+        ? `Ringing again · ${st.snoozes} snooze${st.snoozes === 1 ? "" : "s"} used` : "Ringing";
+      $("subclock").textContent = `Latest safe wake-up ${S.plan.wake_time}`;
+      sn.disabled = s === 0;
+      $("snoozeHint").textContent = s ? `+${s} min` : "not safe";
+      up.firstChild.textContent = "I'm up"; $("upHint").textContent = "stop the alarm";
+      if (s) {
+        $("message").className = "message";
+        $("message").textContent = `A ${s}-minute snooze is safe: getting up at ${fmt(st.now + s)} still leaves ${pct(pAt(st.now + s))} chance of being on time.`;
+      } else {
+        $("message").className = "message refused";
+        $("message").textContent = `No safe snooze left. Even one more minute would drop your chance of being on time to ${pct(pAt(st.now + 1))}, below 90%. Get up now.`;
+      }
+    } else if (st.mode === "snoozing") {
+      $("status").textContent = `Snoozing until ${fmt(st.until)}`;
+      sn.disabled = true; $("snoozeHint").textContent = "zzz";
+      up.firstChild.textContent = "I'm up"; $("upHint").textContent = "get up early";
+    } else if (st.mode === "up") {
+      $("status").textContent = "You're up";
+      $("subclock").textContent = `${st.snoozes} snooze${st.snoozes === 1 ? "" : "s"}`;
+      sn.disabled = true; $("snoozeHint").innerHTML = "&nbsp;";
+      up.firstChild.textContent = "Again"; $("upHint").textContent = "replay this morning";
+      const g = S.plan.alternatives.gut_rule;
+      $("message").className = "message";
+      $("message").textContent = `You got up at ${fmt(st.now)} with ${pct(p)} chance of being on time. The fixed ${g.buffer_min}-minute buffer would have woken you at ${g.wake_time}.`;
+    }
+    renderChart();
+  }
+
+  function tick(ts) {
+    if (!last) last = ts;
+    const dt = (ts - last) / 1000; last = ts;
+    if (st.mode === "snoozing") {
+      st.now = Math.min(st.until, st.now + (dt * speed) / 60);
+      if (st.now >= st.until) { st.now = st.until; st.mode = "ringing"; beep(); }
+      render();
+    }
+    raf = requestAnimationFrame(tick);
+  }
+
+  let audio = null;
+  function beep() {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = 880; o.connect(g); g.connect(audio.destination);
+      g.gain.setValueAtTime(0.0001, audio.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.08, audio.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.35);
+      o.start(); o.stop(audio.currentTime + 0.4);
+    } catch (e) { /* sound is optional */ }
+  }
+
+  $("snooze").onclick = () => {
+    const s = safeSnooze(st.now);
+    if (!s || st.mode !== "ringing") return;
+    $("message").className = "message";
+    $("message").textContent = `Snoozed ${s} min. Getting up at ${fmt(st.now + s)}: ${pct(pAt(st.now + s))} chance of being on time.`;
+    setState({ mode: "snoozing", until: st.now + s, snoozes: st.snoozes + 1 });
+  };
+  $("up").onclick = () => {
+    if (st.mode === "idle") { setState({ mode: "ringing" }); beep(); }
+    else if (st.mode === "up") reset();
+    else { st.now = Math.round(st.now); setState({ mode: "up" }); }
+  };
+  $("reset").onclick = () => reset();
+  document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => {
+    speed = Number(b.dataset.speed);
+    document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  });
+
+  function reset() {
+    st = { mode: "idle", now: S.wake - D.first_ring_min, snoozes: 0, until: null };
+    $("message").className = "message"; $("message").textContent = "";
+    render();
+  }
+
+  select(D.scenarios[0].id);
+  raf = requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  // Static demo only: serves docs/demo (one HTML file, no model calls, no weights).
+  "name": "snooze-oracle",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./docs/demo" },
+  "workers_dev": true,
+  "routes": [{ "pattern": "snooze.eliasshieh.com", "custom_domain": true }]
+}
