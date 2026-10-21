@@ -7,7 +7,8 @@ Prints:
   1. overall wait / ride / total minutes quantiles
   2. trip counts for airport routes by request hour (where the snooze story lives)
   3. for the busiest early-morning (4-7am) routes to JFK / LGA: total_min P10/P50/P90
-  4. fare by request time within the hour for one busy route (is "wait 10 min" ever cheaper?)
+  4. fare by 10-min slot (3-7am) and by hour for the 5 busiest 3-7am routes to an
+     airport (pu_zone <> do_zone): is "wait 10 min" ever cheaper?
 """
 
 from __future__ import annotations
@@ -17,11 +18,9 @@ from pathlib import Path
 
 import duckdb
 
+from prep_trips import AIRPORT_ZONES, show
+
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def show(rel) -> None:
-    rel.show(max_rows=10_000)  # DuckDB truncates to 20 rows by default
 
 
 def main(month: str) -> None:
@@ -60,29 +59,78 @@ def main(month: str) -> None:
         FROM t
         WHERE do_zone IN (132, 138) AND req_hour BETWEEN 4 AND 6
         GROUP BY pu_zone, do_zone
-        ORDER BY trips DESC LIMIT 15
+        ORDER BY trips DESC, pu_zone, do_zone LIMIT 15
     """))
 
-    print("\n== 4. Weekday fare per mile by 10-min request slot, busiest route 6-10am ==")
-    route = con.sql("""
-        SELECT pu_zone, do_zone FROM t
-        WHERE req_hour BETWEEN 6 AND 9 AND NOT is_weekend
-        GROUP BY pu_zone, do_zone ORDER BY count(*) DESC LIMIT 1
-    """).fetchone()
-    print(f"route {route[0]} -> {route[1]}")
-    show(con.sql(f"""
-        SELECT req_min_of_day // 10 * 10 AS slot_start_min,
-               lpad(CAST(req_min_of_day // 60 AS VARCHAR), 2, '0') || ':' ||
-               lpad(CAST(req_min_of_day // 10 * 10 % 60 AS VARCHAR), 2, '0') AS slot,
-               count(*) AS trips,
-               round(median(fare_per_mile), 2) AS med_fare_per_mile,
-               round(median(fare), 2) AS med_fare
+    airports = ", ".join(str(z) for z in AIRPORT_ZONES)
+    con.execute(f"""
+        CREATE TEMP TABLE routes AS
+        SELECT pu_zone, do_zone, count(*) AS trips_3to7
         FROM t
-        WHERE pu_zone = {route[0]} AND do_zone = {route[1]}
-          AND req_hour BETWEEN 6 AND 9 AND NOT is_weekend
-        GROUP BY 1, 2 ORDER BY 1
-    """))
+        WHERE do_zone IN ({airports}) AND pu_zone <> do_zone AND req_hour BETWEEN 3 AND 6
+        GROUP BY ALL ORDER BY trips_3to7 DESC, pu_zone, do_zone LIMIT 5
+    """)
+    con.execute("""
+        CREATE TEMP VIEW rt AS
+        SELECT t.* FROM t JOIN routes USING (pu_zone, do_zone)
+    """)
 
+    print("\n== 4. Fare by request time, 5 busiest 3-7am routes to an airport (all days) ==")
+    show(con.sql("SELECT * FROM routes ORDER BY trips_3to7 DESC"))
+
+    print("\n-- 4a. By 10-min request slot, 03:00-06:59 --")
+    show(con.sql(bucket_sql("req_min_of_day // 10 * 10", "req_hour BETWEEN 3 AND 6")))
+    print("\n-- 4b. Slot summary per route --")
+    show(con.sql(summary_sql("req_min_of_day // 10 * 10", "req_hour BETWEEN 3 AND 6", 10)))
+
+    print("\n-- 4c. By request hour, 0-23 --")
+    show(con.sql(bucket_sql("req_hour * 60", "TRUE")))
+    print("\n-- 4d. Hour summary per route --")
+    show(con.sql(summary_sql("req_hour * 60", "TRUE", 60)))
+
+
+def bucket_sql(bucket: str, where: str) -> str:
+    """Per route and time bucket (start minute of day): trips, fare and fare_per_mile."""
+    return f"""
+        SELECT pu_zone, do_zone,
+               lpad(CAST(b // 60 AS VARCHAR), 2, '0') || ':' ||
+               lpad(CAST(b % 60 AS VARCHAR), 2, '0') AS start,
+               trips, med_fare, fare_p10, fare_p90, med_fare_per_mile
+        FROM (
+          SELECT pu_zone, do_zone, {bucket} AS b, count(*) AS trips,
+                 round(median(fare), 2) AS med_fare,
+                 round(quantile_cont(fare, 0.1), 2) AS fare_p10,
+                 round(quantile_cont(fare, 0.9), 2) AS fare_p90,
+                 round(median(fare_per_mile), 2) AS med_fare_per_mile
+          FROM rt WHERE {where} GROUP BY ALL
+        )
+        ORDER BY pu_zone, do_zone, b
+    """
+
+
+def summary_sql(bucket: str, where: str, step: int) -> str:
+    """Per route: range of bucket medians, mean |change| between adjacent buckets
+    (only buckets exactly `step` minutes apart), and mean within-bucket P90-P10 fare spread."""
+    return f"""
+        WITH b AS (
+          SELECT pu_zone, do_zone, {bucket} AS b, count(*) AS trips,
+                 median(fare) AS med_fare, median(fare_per_mile) AS med_fpm,
+                 quantile_cont(fare, 0.9) - quantile_cont(fare, 0.1) AS spread
+          FROM rt WHERE {where} GROUP BY ALL
+        ), d AS (
+          SELECT *,
+                 b - lag(b) OVER w = {step} AS adjacent,
+                 abs(med_fare - lag(med_fare) OVER w) AS d_fare,
+                 abs(med_fpm - lag(med_fpm) OVER w) AS d_fpm
+          FROM b WINDOW w AS (PARTITION BY pu_zone, do_zone ORDER BY b)
+        )
+        SELECT pu_zone, do_zone, count(*) AS buckets, min(trips) AS min_trips,
+               round(min(med_fare), 2) AS min_med_fare, round(max(med_fare), 2) AS max_med_fare,
+               round(avg(d_fare) FILTER (WHERE adjacent), 2) AS mean_abs_adj_fare,
+               round(avg(d_fpm) FILTER (WHERE adjacent), 2) AS mean_abs_adj_fpm,
+               round(avg(spread), 2) AS mean_within_p90_p10
+        FROM d GROUP BY ALL ORDER BY pu_zone, do_zone
+    """
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "2026-08")

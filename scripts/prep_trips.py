@@ -22,6 +22,10 @@ OUT = ROOT / "data" / "processed"
 AIRPORT_ZONES = (1, 132, 138)  # Newark, JFK, LaGuardia
 
 
+def show(rel) -> None:
+    rel.show(max_rows=10_000, max_width=10_000)  # DuckDB truncates rows and columns by default
+
+
 def download(url: str, dest: Path) -> Path:
     if dest.exists() and dest.stat().st_size > 0:
         print(f"cached  {dest.name}")
