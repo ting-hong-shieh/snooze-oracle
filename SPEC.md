@@ -92,6 +92,7 @@ flights only (cancelled and diverted are counted separately).
 | `scripts/`, `SPEC.md`, `docs/` | shared (main) | `main` |
 | `src/ride/` | ride workstream | `ride-model` |
 | `src/flight/` | flight workstream | `flight-model` |
+| `src/alarm/` | alarm (combines ride + flight) | `main` |
 
 A workstream edits only its own `src/` folder. Changes to shared files go through main.
 
@@ -104,7 +105,9 @@ def ride_total_samples(pu_zone: int, do_zone: int, request_ts: datetime,
                        n: int = 2000, rng: np.random.Generator | None = None) -> np.ndarray:
     """n sampled total_min values (request -> drop-off, minutes) for an Uber requested
     at request_ts from pu_zone to do_zone, in random order. Pass `rng` for a reproducible
-    order; never pair two arrays drawn with the same seeded order."""
+    order; never pair two arrays drawn with the same seeded order.
+    Scope: do_zone in {132, 138} (JFK, LGA) and request time 03:00-08:59; raises
+    ValueError outside it."""
 
 def p_on_time(pu_zone: int, do_zone: int, wake_time: datetime, deadline: datetime,
               prep_min: float = 15.0, prep_sd: float = 5.0) -> float:
@@ -130,6 +133,24 @@ def p_cancel(origin: str, carrier: str, crs_arr_ts: datetime,
     ArrDelay samples."""
 ```
 
+Ride TabPFN context (retrieval), per query route and request hour h:
+1. take ALL July rows of the query's own route (pu_zone -> do_zone) with request hour in
+   [h-2, h+2], truncated to 03:00-08:59 (not wrapped);
+2. if that is under 10,000 rows, fill the remaining slots with rows of the wider
+   pu_borough -> do_zone set in the same hours (excluding rows already taken), sampled
+   uniformly without replacement; cap 10,000 rows in total.
+Ride TabPFN runs on the GPU only: no CPU fallback, so results never mix devices.
+(TabPFN on CPU also refuses contexts over 5,000 rows by default.)
+
+Flight runtime default: the "dest only" TabPFN variant (features origin, carrier, dest,
+crs_arr_min_of_day, dow, month, distance; full 28,672-row training context). When `dest` is
+None, samples mix the JFK and LGA predictions by the origin x carrier training share.
+Night-before features may only use days up to A-2 (A = scheduled arrival date, NYC time):
+the precompute runs on the evening of A-1, and BTS day A-1 already contains red-eyes
+landing on the morning of A. BTS publishes about two months late, so a live product would
+need a live flight-status source for any such feature; it is not used at runtime
+(see `docs/findings.md`).
+
 Predictions are precomputed in a batch the night before (TabPFN predict calls take tens of
 seconds to minutes); the alarm and the pickup page only read the precomputed results.
 
@@ -138,6 +159,21 @@ Flight modelling window: arrivals with `crs_arr_hhmm` 0300–0859 (wider than th
 
 Snooze rule: allow a snooze of length `s` only if `p_on_time(wake_time = now + s) >= 0.90`;
 `s` = largest such value up to 9 minutes. Otherwise refuse and keep ringing.
+
+Alarm (`src/alarm/`, pickup scenario):
+
+```python
+def p_on_time(pu_zone: int, flight: dict, wake_time: datetime, prep_min: float = 15.0,
+              prep_sd: float = 5.0, exit_buffer: float = 20.0, model: str = "tabpfn") -> float:
+    """flight = {"origin", "carrier", "dest", "crs_arr_ts"}. Monte Carlo over flight delay
+    (not cancelled), prep and ride, per the pickup rule below."""
+
+def snooze_curve(pu_zone, flight, start, end, step_min=1, **kw) -> pd.DataFrame:
+    """Columns: wake_time, p_on_time."""
+
+def latest_safe_wake(pu_zone, flight, threshold=0.90, **kw) -> datetime:
+    """Latest wake time with p_on_time >= threshold. The phone only needs this time."""
+```
 
 Pickup scenario (meeting a flight): you are on time if
 
@@ -158,6 +194,10 @@ Compare on the 2026-08 holdout, same features, default settings, no tuning:
 3. LightGBM quantile regression, defaults.
 4. TabPFN-3.5 regressor (local), quantile outputs.
 
+Ride retrieval control: the lookup table and LightGBM are also fit on exactly the same
+retrieval contexts TabPFN uses, so a sparse-route gain can be attributed to the model or to
+the retrieval.
+
 Report: coverage (P90 for rides; P10 and P90 for flights), pinball loss, and the decision
 metrics — average extra minutes of sleep and late rate. Break results down by data density
 (dense routes vs sparse early-morning / rare routes; for flights, training flights per
@@ -170,6 +210,10 @@ origin x carrier) — that is where TabPFN is expected to matter.
   `data/` is a symlink to `/mnt/d/Data/snooze-oracle` (kept out of git).
   The Windows NVIDIA driver supports CUDA 12.6, so on WSL install torch from the cu126 index
   after `requirements.txt`: `pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu126`.
+- GPU lock: the GPU is shared. Code that uses TabPFN on the GPU takes
+  `/tmp/snooze-oracle-gpu.lock` itself (`fcntl.flock`) around each batch (fit + predict +
+  free memory) and releases it in between. Never wrap a process in the `flock` command:
+  code that also locks itself would wait on itself.
 - TabPFN-3.5 weights are non-commercial and may not be offered as a hosted service:
   never commit weights; never deploy a public endpoint that serves predictions.
   Public demo = video + static precomputed page.

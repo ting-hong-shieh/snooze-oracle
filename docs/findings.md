@@ -27,3 +27,24 @@ ranked by trips requested 03:00–06:59, all days of the week. Fare = `base_pass
 
 Earlier check, before the route definition changed: the busiest weekday 6–10am route was
 76 → 76 (inside East New York, about 1.2 miles); slot medians ranged $8.79–9.43.
+
+## Previous-day delay features help P90 coverage but not pinball, and cannot be deployed
+
+Data: flights into JFK/LGA scheduled 03:00–08:59, train 2025-08 … 2026-07, test 2026-08
+(`src/flight/RESULTS_round2.md`). Features: the origin airport's mean departure delay and
+the destination airport's mean arrival delay on day A−2 (A = scheduled arrival date).
+
+- P90 coverage moved toward 0.90: TabPFN 0.854 → 0.881 (paired +0.027 [+0.013, +0.046]),
+  LightGBM 0.820 → 0.842 (+0.021 [+0.006, +0.037]).
+- Mean pinball did not improve: TabPFN −0.010 [−0.214, +0.263], LightGBM −0.094
+  [−0.262, +0.070].
+- The features do not separate bad days from calm ones (observed P90 delay 52 / 48 / 50 min
+  after calm / middle / bad A−2 days). They carry the month's level, which happened to match
+  August 2026.
+- TabPFN copied extreme days: an A−2 value can act as a key for one training day. On
+  2026-08-23 JFK's value matched 2026-02-24 (a storm-recovery morning) and TabPFN's predicted
+  P90 had a median of 486 min across 56 flights; the actual P90 was 101 min.
+- Not deployable as built: BTS publishes about two months late, so a real product would need
+  live flight status for any previous-day feature.
+- Decision: the runtime default is the "dest only" variant (adding `dest` alone gave the only
+  significant pinball gain this round, TabPFN −0.030 [−0.048, −0.013]).
