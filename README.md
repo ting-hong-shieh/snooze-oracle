@@ -8,6 +8,10 @@ Two mornings are covered:
 - **Commute:** an Uber to a meeting in Midtown, the Financial District or Hudson Yards.
 - **Pickup:** meeting someone off an early flight (landing 03:00–08:59) at JFK or LaGuardia.
 
+**Demo:** <https://snooze.eliasshieh.com> replays six August 2026 mornings (four commutes,
+two airport pickups) with a simulated alarm clock. The page is static: the curves were
+precomputed and nothing on it calls a model.
+
 Ride times come from TabPFN-3.5 run locally on NYC TLC Uber trips; flight delays from
 TabPFN-3.5 on BTS on-time data. The backtests behind it are in `docs/backtest.md` and
 `docs/commute_backtest.md`.
