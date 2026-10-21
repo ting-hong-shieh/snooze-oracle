@@ -2,6 +2,7 @@
 
 Usage:
     python scripts/prep_flights.py 2026-07 2026-08
+    python scripts/prep_flights.py --no-report 2025-08 2025-09 ...   # build tables only
 
 Writes data/processed/flights_YYYY-MM.parquet (schema in SPEC.md) and prints a report:
 arrivals scheduled 04:00-07:59, and ArrDelay P10/P50/P90 overall and for the 10 busiest
@@ -56,7 +57,8 @@ def build_month(month: str) -> Path:
               TRY_CAST(ArrTime AS INTEGER)                    AS arr_hhmm,
               TRY_CAST(ArrDelay AS DOUBLE)                    AS arr_delay,
               CAST(Cancelled AS DOUBLE) = 1                   AS cancelled,
-              CAST(Diverted AS DOUBLE) = 1                    AS diverted
+              CAST(Diverted AS DOUBLE) = 1                    AS diverted,
+              CAST(Distance AS DOUBLE)                        AS distance
             FROM read_csv('{csv}', header = true, all_varchar = true)
             WHERE Dest IN ({dests})
           )
@@ -126,12 +128,14 @@ def report(months: list[str]) -> None:
     """))
 
 
-def main(months: list[str]) -> None:
+def main(args: list[str]) -> None:
+    months = [a for a in args if a != "--no-report"]
     if not months:
-        sys.exit("usage: python scripts/prep_flights.py 2026-07 2026-08")
+        sys.exit("usage: python scripts/prep_flights.py [--no-report] 2026-07 2026-08")
     for month in months:
         build_month(month)
-    report(months)
+    if "--no-report" not in args:
+        report(months)
 
 
 if __name__ == "__main__":

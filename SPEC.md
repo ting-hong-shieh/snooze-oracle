@@ -160,6 +160,8 @@ origin x carrier) — that is where TabPFN is expected to matter.
 - TabPFN on CPU accepts ≤ 5,000 training rows per fit by default: filter by route/time
   window, then sample. Dev machine: WSL2 (Ubuntu) with an NVIDIA RTX 3080 Ti (CUDA).
   `data/` is a symlink to `/mnt/d/Data/snooze-oracle` (kept out of git).
+  The Windows NVIDIA driver supports CUDA 12.6, so on WSL install torch from the cu126 index
+  after `requirements.txt`: `pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu126`.
 - TabPFN-3.5 weights are non-commercial and may not be offered as a hosted service:
   never commit weights; never deploy a public endpoint that serves predictions.
   Public demo = video + static precomputed page.
