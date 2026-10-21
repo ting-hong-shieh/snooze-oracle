@@ -7,6 +7,7 @@
 <meta name="description" content="An alarm that lets you snooze only while you will still make it. Replay of August 2026 mornings in New York, precomputed with TabPFN-3.5.">
 <meta name="theme-color" content="#0b1020">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='22' fill='%23f6c96b'/%3E%3Cpath d='M32 20v14l9 6' stroke='%230b1020' stroke-width='5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+<script>if (new URLSearchParams(location.search).get("video") === "1") document.documentElement.classList.add("video");</script>
 <style>
 :root {
   --bg-0: #070b18;
@@ -21,6 +22,7 @@
   --line: rgba(255, 255, 255, 0.12);
   --good: #6fd3a4;
   --warn: #f39a6b;
+  --stop: #ff8a6a;
   --model: #7aa7ff;
   --buffer: #c3c2b7;
   --radius: 22px;
@@ -41,9 +43,10 @@ body {
 }
 .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
 header h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
-header p { margin: 6px 0 0; color: var(--ink-2); max-width: 46ch; }
+.lede { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; margin-top: 6px; }
+.lede p { margin: 0; color: var(--ink); font-size: 18px; line-height: 1.4; max-width: 44ch; letter-spacing: -0.005em; }
 .replay {
-  display: inline-block; margin-top: 14px;
+  display: inline-block;
   padding: 6px 12px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line);
   color: var(--ink-2); font-size: 13px;
 }
@@ -62,55 +65,106 @@ header p { margin: 6px 0 0; color: var(--ink-2); max-width: 46ch; }
 .chip[aria-pressed="true"] { border-color: var(--dawn); background: rgba(246, 201, 107, 0.12); }
 .chip .t { display: block; font-size: 14px; font-weight: 600; }
 .chip .s { display: block; font-size: 12px; color: var(--ink-3); }
+button:focus-visible { outline: 2px solid var(--dawn); outline-offset: 2px; }
 
-.grid { display: grid; gap: 18px; margin-top: 18px; grid-template-columns: 1fr; }
-@media (min-width: 860px) { .grid { grid-template-columns: 400px 1fr; align-items: start; } }
+.grid { display: grid; gap: 18px; margin-top: 18px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 860px) { .grid { grid-template-columns: 400px minmax(0, 1fr); align-items: start; } }
 
 /* phone */
 .phone {
-  position: relative; border-radius: 40px; padding: 26px 22px 24px;
+  position: relative; border-radius: 40px; padding: 14px 22px 24px;
   background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
   border: 1px solid var(--line); box-shadow: var(--shadow);
   -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
-  overflow: hidden;
+  overflow: hidden; transition: background .6s, border-color .4s, box-shadow .4s;
 }
 .phone::before {
   content: ""; position: absolute; inset: -40% -20% auto; height: 70%;
   background: radial-gradient(closest-side, rgba(246, 201, 107, 0.0), transparent);
-  transition: background .6s;
-  pointer-events: none;
+  transition: background .6s; pointer-events: none;
 }
-.phone.ringing::before { background: radial-gradient(closest-side, rgba(246, 201, 107, 0.35), transparent); animation: pulse 1.2s ease-in-out infinite; }
+.phone::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: rgba(3, 5, 14, 0); transition: background .6s;
+}
+.phone > * { position: relative; z-index: 1; }
+.phone.ringing::before { background: radial-gradient(closest-side, rgba(246, 201, 107, 0.5), transparent); animation: pulse 1s ease-in-out infinite; }
+.phone.ringing { border-color: rgba(246, 201, 107, 0.55); animation: ringEdge 1s ease-in-out infinite; }
+.phone.refused::before { background: radial-gradient(closest-side, rgba(255, 138, 106, 0.5), transparent); }
+.phone.refused { border-color: rgba(255, 138, 106, 0.7); animation-name: refuseEdge; }
+.phone.snoozing::after { background: rgba(3, 5, 14, 0.42); }
+.phone.snoozing .clock { color: var(--ink-3); }
 @keyframes pulse { 50% { opacity: .35; } }
+@keyframes ringEdge {
+  0%, 100% { box-shadow: var(--shadow), 0 0 0 0 rgba(246, 201, 107, 0); }
+  50% { box-shadow: var(--shadow), 0 0 0 6px rgba(246, 201, 107, 0.18), 0 0 48px rgba(246, 201, 107, 0.28); }
+}
+@keyframes refuseEdge {
+  0%, 100% { box-shadow: var(--shadow), 0 0 0 0 rgba(255, 138, 106, 0); }
+  50% { box-shadow: var(--shadow), 0 0 0 6px rgba(255, 138, 106, 0.2), 0 0 48px rgba(255, 138, 106, 0.3); }
+}
+.phone.shake { animation: shake .5s cubic-bezier(.36,.07,.19,.97) both, refuseEdge 1s ease-in-out .5s infinite; }
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-8px); } 40%, 60% { transform: translateX(8px); }
+}
+.sim {
+  display: block; width: fit-content; margin: 0 auto 12px; padding: 5px 14px; border-radius: 999px;
+  background: rgba(0, 0, 0, 0.42); border: 1px solid rgba(255,255,255,0.07);
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3);
+}
 .status { font-size: 13px; color: var(--ink-3); text-align: center; min-height: 20px; }
 .clock {
   font-variant-numeric: tabular-nums; text-align: center; font-weight: 200;
   font-size: clamp(64px, 22vw, 96px); letter-spacing: -0.04em; line-height: 1; margin: 10px 0 4px;
+  transition: color .4s;
 }
-.phone.ringing .clock { color: var(--dawn); }
-.subclock { text-align: center; color: var(--ink-2); font-size: 14px; min-height: 22px; }
+.phone.ringing .clock { color: var(--dawn); animation: digits 1s ease-in-out infinite; }
+.phone.refused .clock { color: var(--stop); }
+@keyframes digits {
+  0%, 100% { transform: scale(1); text-shadow: 0 0 0 rgba(246, 201, 107, 0); }
+  12% { transform: scale(1.035); text-shadow: 0 0 28px rgba(246, 201, 107, 0.55); }
+  30% { transform: scale(1); }
+}
+.subclock { text-align: center; color: var(--ink-2); font-size: 14px; min-height: 22px; transition: font-size .3s; }
+.phone.snoozing .subclock { font-size: 22px; color: var(--ink); font-weight: 600; letter-spacing: -0.01em; }
 .pon {
-  margin: 16px auto 0; width: fit-content; padding: 6px 14px; border-radius: 999px;
-  font-variant-numeric: tabular-nums; font-size: 14px; background: var(--glass); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 16px 0 0; padding: 8px 10px 8px 16px; border-radius: 16px;
+  font-size: 14px; line-height: 1.3; background: var(--glass); border: 1px solid var(--line); color: var(--ink-2);
 }
-.pon b { font-weight: 700; }
+.pon b { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 18px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.06); }
 .pon.ok b { color: var(--good); }
 .pon.bad b { color: var(--warn); }
-.buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 22px; }
+.buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
 .btn {
-  appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 600; font-size: 17px;
-  border-radius: 20px; padding: 18px 12px; color: var(--ink); background: var(--glass-2);
-  border: 1px solid var(--line); transition: transform .1s, background .2s, opacity .2s;
-  min-height: 64px;
+  appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 600; font-size: 17px; line-height: 1.25;
+  border-radius: 20px; padding: 14px 10px; color: var(--ink); background: var(--glass-2);
+  border: 1px solid var(--line); transition: transform .1s, background .25s, opacity .25s, color .25s;
+  min-height: 68px;
 }
 .btn:active:not(:disabled) { transform: scale(0.97); }
 .btn.primary { background: linear-gradient(180deg, var(--dawn), var(--dawn-2)); color: #1a1205; border: 0; }
 .btn:disabled { opacity: .38; cursor: not-allowed; }
-.btn small { display: block; font-weight: 500; font-size: 12px; opacity: .8; }
+.btn small { display: block; font-weight: 500; font-size: 14px; opacity: .9; font-variant-numeric: tabular-nums; }
+#snooze.ok small { color: var(--good); opacity: 1; font-weight: 700; }
+#snooze.no {
+  opacity: 1; cursor: not-allowed; color: #2a0e06; border: 0;
+  background: linear-gradient(180deg, #ff9d7e, #e8603f);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 8px 24px rgba(232, 96, 63, 0.3);
+}
+#snooze.no small { opacity: .85; }
 .message {
   margin-top: 16px; font-size: 14px; color: var(--ink-2); min-height: 44px; text-align: center;
 }
-.message.refused { color: var(--warn); }
+.message p { margin: 0; }
+.message.refused { color: var(--ink); }
+.r-head { font-size: 22px; font-weight: 700; color: var(--stop); letter-spacing: -0.01em; }
+.r-body { font-size: 17px; line-height: 1.35; margin-top: 4px !important; color: var(--ink-2); }
+.r-line { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-top: 2px; }
+.r-num { font-size: 56px; font-weight: 700; line-height: 1.05; letter-spacing: -0.03em; color: var(--stop); font-variant-numeric: tabular-nums; }
+.r-th { font-size: 17px; color: var(--ink-2); }
+.r-cta { font-size: 20px; font-weight: 700; color: var(--ink); margin-top: 6px !important; }
 .controls { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 10px; flex-wrap: wrap; }
 .seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--glass); border: 1px solid var(--line); }
 .seg button {
@@ -122,17 +176,20 @@ header p { margin: 6px 0 0; color: var(--ink-2); max-width: 46ch; }
 
 /* cards */
 .card {
-  border-radius: var(--radius); padding: 20px; background: var(--glass); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 20px; background: var(--glass); border: 1px solid var(--line); min-width: 0;
 }
 .card h2 { margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 600; }
 .plan-head { font-size: 15px; color: var(--ink-2); margin: 0 0 12px; }
 .plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.kv { border-radius: 14px; padding: 4px 8px; margin: -4px -8px; transition: background .35s, box-shadow .35s; }
+.kv.hl { background: rgba(246, 201, 107, 0.12); box-shadow: 0 0 0 1px rgba(246, 201, 107, 0.6); }
 .kv .k { font-size: 12px; color: var(--ink-3); }
 .kv .v { font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .kv .v.big { color: var(--dawn); }
 .compare { margin-top: 14px; font-size: 14px; color: var(--ink-2); }
-.stack { display: grid; gap: 18px; }
+.stack { display: grid; gap: 18px; min-width: 0; }
 svg text { font-family: inherit; }
+#chart { display: block; width: 100%; height: auto; }
 .bars { display: grid; gap: 10px; margin-top: 8px; }
 .bar { display: grid; grid-template-columns: 9.5em 1fr 3.4em; gap: 10px; align-items: center; font-size: 14px; }
 .bar .track { display: block; height: 12px; border-radius: 6px; background: rgba(255,255,255,0.06); overflow: hidden; }
@@ -142,31 +199,95 @@ svg text { font-family: inherit; }
 footer { margin-top: 28px; font-size: 13px; color: var(--ink-3); }
 footer a, .card a { color: var(--ink-2); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-@media (prefers-reduced-motion: reduce) { .phone.ringing::before { animation: none; } }
+.hide { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .phone.ringing::before, .phone.ringing, .phone.ringing .clock, .phone.shake { animation: none; }
+  .phone.ringing { box-shadow: var(--shadow), 0 0 0 4px rgba(246, 201, 107, 0.2); }
+  .phone.refused { box-shadow: var(--shadow), 0 0 0 4px rgba(255, 138, 106, 0.22); }
+}
+
+/* video mode: ?video=1, laid out for a 1920x1080 frame */
+html.video, html.video * { cursor: none !important; }
+html.video body { min-height: 1080px; }
+.video .wrap { max-width: 1760px; padding: 26px 0 0; }
+.video header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px 40px; }
+.video header h1 { font-size: 46px; grid-column: 1 / -1; line-height: 1.05; }
+.video .lede { display: contents; }
+.video .lede p { font-size: 30px; max-width: 54ch; line-height: 1.3; }
+.video .replay { font-size: 22px; padding: 10px 22px; border-radius: 20px; max-width: 560px; line-height: 1.35; }
+.video .groups { display: grid; grid-template-columns: 4fr 2fr; gap: 24px; }
+.video .group-label { font-size: 17px; margin: 16px 0 8px; }
+.video .chips { gap: 12px; flex-wrap: nowrap; }
+.video .chip { flex: 1 1 0; min-width: 0; padding: 10px 18px; border-radius: 18px; }
+.video .chip .t { font-size: 21px; line-height: 1.25; }
+.video .chip .s { font-size: 17px; margin-top: 2px; }
+.video .grid { grid-template-columns: 640px minmax(0, 1fr); gap: 32px; margin-top: 20px; }
+.video .phone { border-radius: 56px; padding: 16px 40px 22px; }
+.video .sim { font-size: 16px; padding: 6px 18px; margin-bottom: 6px; }
+.video .status { font-size: 24px; min-height: 34px; }
+.video .clock { font-size: 196px; margin: 0; letter-spacing: -0.05em; }
+.video .subclock { font-size: 24px; min-height: 36px; }
+.video .phone.snoozing .subclock { font-size: 40px; }
+.video .pon { font-size: 20px; margin-top: 14px; padding: 10px 12px 10px 22px; border-radius: 22px; }
+.video .pon { gap: 10px; padding-left: 18px; }
+.video .pon span { white-space: nowrap; }
+.video .pon b { font-size: 26px; padding: 2px 10px; border-radius: 14px; }
+.video .buttons { gap: 16px; margin-top: 14px; }
+.video .btn { font-size: 30px; min-height: 108px; border-radius: 28px; padding: 14px; }
+.video .btn small { font-size: 28px; }
+.video .message { font-size: 23px; margin-top: 10px; min-height: 64px; line-height: 1.35; }
+.video .r-head { font-size: 36px; }
+.video .r-body { font-size: 25px; }
+.video .r-num { font-size: 80px; }
+.video #snooze.no { font-size: 26px; }
+.video #snooze.no small { font-size: 24px; }
+.video .r-th { font-size: 27px; }
+.video .r-cta { font-size: 30px; }
+.video .phone.refused .subclock, .video .phone.refused .status { display: none; }
+.video .phone.refused .clock { font-size: 176px; }
+.video .stack { gap: 24px; }
+.video .card { padding: 24px 32px 26px; border-radius: 28px; }
+.video .card h2 { font-size: 18px; margin-bottom: 8px; }
+.video .plan-head { font-size: 23px; line-height: 1.4; margin-bottom: 18px; }
+.video .plan-grid { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 16px 18px; }
+.video .kv { padding: 8px 12px; margin: -8px -12px; border-radius: 18px; }
+.video .kv .k { font-size: 18px; line-height: 1.3; }
+.video .kv .v { font-size: 44px; line-height: 1.2; }
+.video .compare { font-size: 21px; }
+.video .controls, .video footer, .video .bt { display: none; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>Snooze Oracle</h1>
-    <p>An alarm that works out the night before how late you can get up, and lets you snooze only while you will still make it.</p>
-    <div class="replay">Replay of <b id="replayDate"></b> in New York · precomputed with TabPFN-3.5</div>
+    <div class="lede">
+      <p>An alarm that works out the night before how late you can get up, and lets you snooze only while you will still make it.</p>
+      <div class="replay">Replay of <b id="replayDate"></b> in New York · precomputed with TabPFN-3.5</div>
+    </div>
   </header>
 
-  <div class="group-label">Commute by Uber</div>
-  <div class="chips" id="chipsCommute"></div>
-  <div class="group-label">Pick someone up at the airport</div>
-  <div class="chips" id="chipsPickup"></div>
+  <div class="groups">
+    <div>
+      <div class="group-label">Commute by Uber</div>
+      <div class="chips" id="chipsCommute"></div>
+    </div>
+    <div>
+      <div class="group-label">Pick someone up at the airport</div>
+      <div class="chips" id="chipsPickup"></div>
+    </div>
+  </div>
 
   <div class="grid">
-    <section class="phone" id="phone" aria-label="Simulated alarm">
+    <section class="phone" id="phone" aria-label="Simulated alarm (replay)">
+      <div class="sim">Simulated alarm · replay</div>
       <div class="status" id="status">Alarm set</div>
       <div class="clock" id="clock">--:--</div>
       <div class="subclock" id="subclock"></div>
-      <div class="pon" id="pon">P(on time) if you get up now: <b>–</b></div>
+      <div class="pon" id="pon"><span>Chance you're on time if you get up now</span><b>–</b></div>
       <div class="buttons">
-        <button class="btn" id="snooze" disabled>Snooze<small id="snoozeHint">&nbsp;</small></button>
-        <button class="btn primary" id="up">Start<small id="upHint">first ring</small></button>
+        <button class="btn" id="snooze" disabled><span>Snooze</span><small id="snoozeHint">&nbsp;</small></button>
+        <button class="btn primary" id="up"><span>Start</span><small id="upHint">first ring</small></button>
       </div>
       <div class="message" id="message" aria-live="polite"></div>
       <div class="controls">
@@ -189,10 +310,10 @@ footer a, .card a { color: var(--ink-2); }
 
       <section class="card">
         <h2>Chance of being on time, by wake-up time</h2>
-        <svg id="chart" viewBox="0 0 560 220" width="100%" role="img" aria-label="Probability of being on time by wake-up time"></svg>
+        <svg id="chart" viewBox="0 0 560 220" role="img" aria-label="Probability of being on time by wake-up time"></svg>
       </section>
 
-      <section class="card">
+      <section class="card bt">
         <h2>How this route did in the August backtest</h2>
         <div class="bars" id="bars"></div>
         <p class="fine" id="btNote"></p>
@@ -211,16 +332,41 @@ footer a, .card a { color: var(--ink-2); }
 (() => {
   const D = JSON.parse(document.getElementById("data").textContent);
   const $ = (id) => document.getElementById(id);
+  const Q = new URLSearchParams(location.search);
+  const VIDEO = Q.get("video") === "1";
   const TH = D.threshold;
+  const TH_PCT = Math.round(TH * 100);
   const pct = (x) => `${Math.round(x * 100)}%`;
+  // A value below the threshold must never read as the threshold: show one decimal
+  // (or floor) when whole-percent rounding would reach it. Stored numbers are unchanged.
+  const pctT = (x) => {
+    if (x >= TH || Math.round(x * 100) < TH_PCT) return pct(x);
+    let v = Math.round(x * 1000) / 10;
+    if (v >= TH_PCT) v = Math.floor(x * 1000) / 10;
+    return `${v.toFixed(1)}%`;
+  };
   const toMin = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
   const fmt = (min) => {
     const m = ((Math.floor(min) % 1440) + 1440) % 1440;
     return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
   };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   $("replayDate").textContent = new Date(D.replay_date + "T12:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-  let S = null, st = null, speed = 60, raf = 0, last = 0;
+  let S = null, st = null, speed = 60, last = 0, W = 0, manual = Q.get("manual") === "1";
+  let auto = null, hlKey = null;
+  const AUTO_DELAY = Number(Q.get("delay")) > 0 ? Number(Q.get("delay")) : 0.8;
+  const show = new Set((Q.get("show") || "").split(","));
+  const hideCompare = Q.get("focus") === "plan" || (VIDEO && !show.has("compare"));
+  if (hideCompare) $("planCompare").classList.add("hide");
+  if (VIDEO && show.has("backtest")) document.querySelector(".bt").style.display = "block";
+
+  window.__events = [];
+  function log(type, extra) {
+    const e = Object.assign({ t: Math.round(W * 1000) / 1000, type, clock: fmt(st.now), wall: Math.round(performance.now()) / 1000 }, extra || {});
+    window.__events.push(e);
+    if (VIDEO) console.log("[SO]", JSON.stringify(e));
+  }
 
   function pAt(t) {
     const i = Math.round(t) - S.c0;
@@ -233,13 +379,12 @@ footer a, .card a { color: var(--ink-2); }
   }
 
   function chip(sc) {
-    const b = document.createElement("button");
-    b.className = "chip"; b.setAttribute("aria-pressed", "false");
-    b.innerHTML = `<span class="t"></span><span class="s"></span>`;
-    b.querySelector(".t").textContent = sc.title;
-    b.querySelector(".s").textContent = sc.scenario === "commute"
+    const b = el("button", "chip");
+    b.setAttribute("aria-pressed", "false");
+    b.appendChild(el("span", "t", sc.title));
+    b.appendChild(el("span", "s", sc.scenario === "commute"
       ? `${sc.kind === "sparse" ? "rare route" : "busy route"} · meeting ${sc.deadline}`
-      : `${sc.kind} · lands ${sc.deadline}`;
+      : `${sc.kind} · lands ${sc.deadline}`));
     b.onclick = () => select(sc.id);
     b.dataset.id = sc.id;
     return b;
@@ -247,11 +392,15 @@ footer a, .card a { color: var(--ink-2); }
   D.scenarios.forEach((sc) => $(sc.scenario === "commute" ? "chipsCommute" : "chipsPickup").appendChild(chip(sc)));
 
   function select(id) {
-    S = D.scenarios.find((x) => x.id === id);
+    const next = D.scenarios.find((x) => x.id === id);
+    if (!next) return false;
+    S = next;
     S.c0 = toMin(S.curve.start);
     S.wake = toMin(S.plan.wake_time);
     document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.id === id)));
+    auto = null;
     renderPlan(); renderBars(); reset();
+    return true;
   }
 
   function renderPlan() {
@@ -260,21 +409,25 @@ footer a, .card a { color: var(--ink-2); }
       ? `${p.from.name} to ${p.to.name}, meeting at ${p.deadline}. Getting ready takes about ${D.prep_min} minutes.`
       : `${p.flight.carrier}${p.flight.number} from ${p.flight.origin} is scheduled to land at ${p.flight.airport} at ${p.flight.scheduled_arrival}. You leave from ${p.from.name}; the passenger needs about ${p.exit_buffer_min} minutes to get off the plane and collect bags.`;
     const kv = [
-      ["Latest safe wake-up", p.wake_time, true],
-      ["First ring", p.first_ring],
-      ["Request the Uber by", p.latest_request_time],
-      ["On time if you get up at " + p.wake_time, pct(p.p_on_time_at_wake)],
+      ["wake", "Latest safe wake-up", p.wake_time, true],
+      ["ring", "First ring", p.first_ring],
+      ["request", "Request the Uber by", p.latest_request_time],
+      ["ontime", "On time if you get up at " + p.wake_time, pctT(p.p_on_time_at_wake)],
     ];
-    if (S.scenario === "pickup") kv.push(["Chance the flight is cancelled", pct(p.flight.p_cancel)]);
+    if (S.scenario === "pickup") kv.push(["cancel", "Chance the flight is cancelled", pct(p.flight.p_cancel)]);
     $("planGrid").innerHTML = "";
-    kv.forEach(([k, v, big]) => {
-      const d = document.createElement("div"); d.className = "kv";
-      d.innerHTML = `<div class="k"></div><div class="v${big ? " big" : ""}"></div>`;
-      d.querySelector(".k").textContent = k; d.querySelector(".v").textContent = v;
+    kv.forEach(([key, k, v, big]) => {
+      const d = el("div", "kv"); d.dataset.key = key;
+      d.appendChild(el("div", "k", k)); d.appendChild(el("div", "v" + (big ? " big" : ""), v));
       $("planGrid").appendChild(d);
     });
+    highlight(hlKey);
     const g = p.alternatives.gut_rule, l = p.alternatives.lookup;
     $("planCompare").textContent = `A fixed ${g.buffer_min}-minute buffer would wake you at ${g.wake_time}: on time ${pct(g.p_on_time_tabpfn)} of the time. A lookup table of past trips says ${l.wake_time} (${pct(l.p_on_time_tabpfn)}).`;
+  }
+  function highlight(key) {
+    hlKey = key || null;
+    document.querySelectorAll(".kv").forEach((k) => k.classList.toggle("hl", k.dataset.key === hlKey));
   }
 
   function renderBars() {
@@ -286,7 +439,7 @@ footer a, .card a { color: var(--ink-2); }
     const max = Math.max(0.3, ...rows.map((r) => r[1]));
     $("bars").innerHTML = "";
     rows.forEach(([label, v, col]) => {
-      const d = document.createElement("div"); d.className = "bar";
+      const d = el("div", "bar");
       d.innerHTML = `<span></span><span class="track"><span class="fill"></span></span><span class="num"></span>`;
       d.children[0].textContent = label;
       d.querySelector(".fill").style.width = `${(v / max) * 100}%`;
@@ -299,125 +452,314 @@ footer a, .card a { color: var(--ink-2); }
   }
 
   function renderChart() {
-    const svg = $("chart"), W = 560, H = 220, L = 40, R = 12, T = 14, B = 30;
+    const svg = $("chart");
+    // viewBox = rendered size, so chart text is true pixels at any width
+    const W0 = Math.max(300, Math.round(svg.getBoundingClientRect().width) || 560);
+    const fs = VIDEO ? 20 : 12;
+    const H = VIDEO ? 300 : Math.round(Math.min(240, Math.max(190, W0 * 0.4)));
+    const L = fs * 3.3, R = 14, T = fs + 12, B = fs + 20;
+    svg.setAttribute("viewBox", `0 0 ${W0} ${H}`);
     const p = S.curve.p, n = p.length;
-    const x = (i) => L + (i / (n - 1)) * (W - L - R);
+    const x = (i) => L + (i / (n - 1)) * (W0 - L - R);
     const y = (v) => T + (1 - v) * (H - T - B);
+    const cl = (i) => Math.max(0, Math.min(n - 1, i));
     const pts = p.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
     const iw = S.wake - S.c0, ir = iw - D.first_ring_min, inow = st ? st.now - S.c0 : ir;
+    const ink3 = "#8189a8", dawn = "#f6c96b";
     let ticks = "";
     for (let i = 0; i < n; i++) {
       const t = S.c0 + i;
-      if (t % 15 === 0) ticks += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}" stroke="rgba(255,255,255,.06)"/><text x="${x(i)}" y="${H - 10}" fill="#8189a8" font-size="11" text-anchor="middle">${fmt(t)}</text>`;
+      if (t % 15 === 0) ticks += `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}" stroke="rgba(255,255,255,.06)"/><text x="${x(i)}" y="${H - 8}" fill="${ink3}" font-size="${fs}" text-anchor="middle">${fmt(t)}</text>`;
     }
+    const dots = (st ? st.granted : []).map((g) => {
+      const i = cl(g - S.c0), reached = st.now >= g;
+      return `<circle cx="${x(i)}" cy="${y(pAt(g))}" r="${fs * 0.36}" fill="${reached ? dawn : "#0b1020"}" stroke="${dawn}" stroke-width="2"/>`;
+    }).join("");
+    let refuse = "";
+    if (st && st.mode === "ringing" && safeSnooze(st.now) === 0) {
+      const i = cl(st.now + 1 - S.c0), v = pAt(st.now + 1);
+      refuse = `<circle cx="${x(i)}" cy="${y(v)}" r="${fs * 0.36}" fill="#ff8a6a" stroke="#0b1020" stroke-width="2"/>
+        <text x="${x(i) - fs * 0.7}" y="${y(v) + fs * 1.5}" fill="#ff8a6a" font-size="${fs}" font-weight="600" text-anchor="end" paint-order="stroke" stroke="#0d1430" stroke-width="5" stroke-linejoin="round">+1 min: ${pctT(v)}</text>`;
+    }
+    const nx = x(cl(inow));
     svg.innerHTML = `
       ${ticks}
-      ${[0, 0.5, 1].map((v) => `<text x="${L - 8}" y="${y(v) + 4}" fill="#8189a8" font-size="11" text-anchor="end">${v * 100}%</text>`).join("")}
-      <line x1="${L}" x2="${W - R}" y1="${y(TH)}" y2="${y(TH)}" stroke="#f6c96b" stroke-dasharray="4 4" stroke-width="1"/>
-      <text x="${W - R}" y="${y(TH) - 6}" fill="#f6c96b" font-size="11" text-anchor="end">90%</text>
+      ${[0, 0.5, 1].map((v) => `<text x="${L - 8}" y="${y(v) + fs * 0.35}" fill="${ink3}" font-size="${fs}" text-anchor="end">${v * 100}%</text>`).join("")}
       <rect x="${x(ir)}" y="${T}" width="${x(iw) - x(ir)}" height="${H - T - B}" fill="rgba(246,201,107,.08)"/>
-      <polyline points="${pts}" fill="none" stroke="#7aa7ff" stroke-width="2.5" stroke-linejoin="round"/>
-      <line x1="${x(Math.max(0, Math.min(n - 1, inow)))}" x2="${x(Math.max(0, Math.min(n - 1, inow)))}" y1="${T}" y2="${H - B}" stroke="#eef1fb" stroke-width="1.5"/>
-      <circle cx="${x(Math.max(0, Math.min(n - 1, inow)))}" cy="${y(pAt(S.c0 + Math.round(inow)))}" r="5" fill="#eef1fb" stroke="#0b1020" stroke-width="2"/>
-      <text x="${x(iw)}" y="${T + 12}" fill="#f6c96b" font-size="11" text-anchor="middle">wake ${S.plan.wake_time}</text>`;
+      <line x1="${x(ir)}" x2="${x(ir)}" y1="${T}" y2="${H - B}" stroke="rgba(246,201,107,.35)" stroke-width="1"/>
+      <text x="${x(ir) + 6}" y="${T - 6}" fill="${dawn}" font-size="${fs}" opacity=".85">first ring</text>
+      <text x="${x(iw)}" y="${T - 6}" fill="${dawn}" font-size="${fs}" text-anchor="middle">wake ${S.plan.wake_time}</text>
+      <line x1="${L}" x2="${W0 - R}" y1="${y(TH)}" y2="${y(TH)}" stroke="${dawn}" stroke-dasharray="4 4" stroke-width="1"/>
+      <text x="${W0 - R}" y="${y(TH) - 6}" fill="${dawn}" font-size="${fs}" text-anchor="end">${TH_PCT}%</text>
+      <polyline points="${pts}" fill="none" stroke="#7aa7ff" stroke-width="${VIDEO ? 3.5 : 2.5}" stroke-linejoin="round"/>
+      <line x1="${nx}" x2="${nx}" y1="${T}" y2="${H - B}" stroke="#eef1fb" stroke-width="1.5"/>
+      ${dots}
+      <circle cx="${nx}" cy="${y(pAt(S.c0 + Math.round(inow)))}" r="${fs * 0.42}" fill="#eef1fb" stroke="#0b1020" stroke-width="2"/>
+      ${refuse}`;
   }
 
-  function setState(next) { st = Object.assign(st || {}, next); render(); }
+  /* ---------- sound: synthesized with WebAudio, started only after a gesture ---------- */
+  const SOUND = Q.get("sound") !== "0";
+  let ac = null, soundOK = false, ringBus = null, ringTimer = 0, ringNext = 0;
+  function audio() {
+    if (!SOUND || !soundOK) return null;
+    try {
+      if (!ac) {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const comp = ac.createDynamicsCompressor();
+        comp.threshold.value = -18; comp.ratio.value = 4; comp.connect(ac.destination);
+        ac.out = comp;
+      }
+      if (ac.state === "suspended") ac.resume();
+      return ac;
+    } catch (e) { return null; }
+  }
+  function unlock() { soundOK = true; audio(); }
+  // a soft bell: sine fundamental + a quieter inharmonic partial, fast attack, exponential decay
+  function bell(a, dest, t, f, g, dur) {
+    [[1, g, dur], [2.76, g * 0.22, dur * 0.4], [5.4, g * 0.06, dur * 0.18]].forEach(([r, gg, d]) => {
+      const o = a.createOscillator(), v = a.createGain();
+      o.type = "sine"; o.frequency.value = f * r;
+      v.gain.setValueAtTime(0.0001, t);
+      v.gain.exponentialRampToValueAtTime(gg, t + 0.006);
+      v.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(v); v.connect(dest); o.start(t); o.stop(t + d + 0.05);
+    });
+  }
+  function ringPattern(a, t) {
+    // two bright bell tones a fifth apart, then a quieter echo; repeats every second
+    bell(a, ringBus, t, 1046.5, 0.16, 0.55);
+    bell(a, ringBus, t + 0.16, 1568, 0.13, 0.7);
+    bell(a, ringBus, t + 0.42, 1568, 0.05, 0.4);
+  }
+  function ringStart(delay) {
+    ringStop();
+    const a = audio(); if (!a) return;
+    const lp = a.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 6000;
+    ringBus = a.createGain(); ringBus.connect(lp); lp.connect(a.out);
+    const t0 = a.currentTime + (delay || 0) + 0.02;
+    // gentle crescendo, like a phone alarm: 55% to full over 8 s
+    ringBus.gain.setValueAtTime(0.55, t0); ringBus.gain.linearRampToValueAtTime(1, t0 + 8);
+    ringNext = t0;
+    const pump = () => {
+      if (!ringBus) return;
+      while (ringNext < a.currentTime + 0.25) { ringPattern(a, ringNext); ringNext += 1.0; }
+    };
+    pump(); ringTimer = setInterval(pump, 80);
+  }
+  function ringStop() {
+    clearInterval(ringTimer); ringTimer = 0;
+    if (ringBus && ac) {
+      const b = ringBus; b.gain.cancelScheduledValues(ac.currentTime);
+      b.gain.setTargetAtTime(0.0001, ac.currentTime, 0.04);
+      setTimeout(() => { try { b.disconnect(); } catch (e) {} }, 400);
+    }
+    ringBus = null;
+  }
+  function sndSnooze() {
+    // a soft tap, then a falling two-note "settle"
+    const a = audio(); if (!a) return;
+    const t = a.currentTime + 0.01;
+    const n = a.createBufferSource(), buf = a.createBuffer(1, Math.round(a.sampleRate * 0.03), a.sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / ch.length, 4);
+    const bp = a.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 1.2;
+    const g = a.createGain(); g.gain.value = 0.35;
+    n.buffer = buf; n.connect(bp); bp.connect(g); g.connect(a.out); n.start(t);
+    bell(a, a.out, t + 0.03, 1318.5, 0.07, 0.25);
+    bell(a, a.out, t + 0.11, 987.8, 0.06, 0.35);
+  }
+  function sndRefuse() {
+    // a low, muted two-note "no", well under the ring
+    const a = audio(); if (!a) return;
+    const t = a.currentTime + 0.01;
+    const lp = a.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1100; lp.connect(a.out);
+    [[293.7, 0], [220, 0.17]].forEach(([f, dt]) => {
+      [0, 4].forEach((det) => {
+        const o = a.createOscillator(), v = a.createGain();
+        o.type = "triangle"; o.frequency.value = f; o.detune.value = det;
+        v.gain.setValueAtTime(0.0001, t + dt);
+        v.gain.exponentialRampToValueAtTime(0.16, t + dt + 0.012);
+        v.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.38);
+        o.connect(v); v.connect(lp); o.start(t + dt); o.stop(t + dt + 0.45);
+      });
+    });
+  }
+
+  /* ---------- state ---------- */
+  function setState(next) {
+    const was = st && st.mode;
+    st = Object.assign(st || {}, next);
+    if (st.mode === "ringing" && was !== "ringing") onRing();
+    if (st.mode !== "ringing") ringStop();
+    render();
+  }
+  function onRing() {
+    st.ringSince = W;
+    const refused = safeSnooze(st.now) === 0;
+    log("ring");
+    if (refused) {
+      log("refuse", { p_next: pAt(st.now + 1) });
+      sndRefuse(); ringStart(0.6); shake();
+    } else ringStart(0);
+  }
+  function shake() {
+    const ph = $("phone");
+    ph.classList.remove("shake"); void ph.offsetWidth; ph.classList.add("shake");
+    clearTimeout(shake.t); shake.t = setTimeout(() => ph.classList.remove("shake"), 520);
+  }
+
+  function setLabel(btn, label, hint) { btn.firstChild.textContent = label; btn.lastChild.textContent = hint; }
 
   function render() {
     const ph = $("phone");
     $("clock").textContent = fmt(st.now);
     const p = pAt(st.now);
     $("pon").className = "pon " + (p >= TH ? "ok" : "bad");
-    $("pon").innerHTML = `P(on time) if you get up now: <b>${pct(p)}</b>`;
+    $("pon").lastChild.textContent = pctT(p);
+    const s = st.mode === "ringing" ? safeSnooze(st.now) : -1;
     ph.classList.toggle("ringing", st.mode === "ringing");
-    const sn = $("snooze"), up = $("up");
+    ph.classList.toggle("refused", s === 0);
+    ph.classList.toggle("snoozing", st.mode === "snoozing");
+    const sn = $("snooze"), up = $("up"), msg = $("message");
+    sn.className = "btn"; sn.removeAttribute("aria-disabled");
     if (st.mode === "idle") {
       $("status").textContent = `Alarm set for ${fmt(st.now)}`;
       $("subclock").textContent = `Latest safe wake-up ${S.plan.wake_time}`;
-      sn.disabled = true; $("snoozeHint").innerHTML = "&nbsp;";
-      up.firstChild.textContent = "Start"; $("upHint").textContent = "first ring";
+      sn.disabled = true; setLabel(sn, "Snooze", " ");
+      setLabel(up, "Start", "first ring");
     } else if (st.mode === "ringing") {
-      const s = safeSnooze(st.now);
       $("status").textContent = st.snoozes
         ? `Ringing again · ${st.snoozes} snooze${st.snoozes === 1 ? "" : "s"} used` : "Ringing";
       $("subclock").textContent = `Latest safe wake-up ${S.plan.wake_time}`;
-      sn.disabled = s === 0;
-      $("snoozeHint").textContent = s ? `+${s} min` : "not safe";
-      up.firstChild.textContent = "I'm up"; $("upHint").textContent = "stop the alarm";
+      setLabel(up, "I'm up", "stop the alarm");
+      msg.innerHTML = "";
       if (s) {
-        $("message").className = "message";
-        $("message").textContent = `A ${s}-minute snooze is safe: getting up at ${fmt(st.now + s)} still leaves ${pct(pAt(st.now + s))} chance of being on time.`;
+        sn.disabled = false; sn.classList.add("ok"); setLabel(sn, "Snooze", `+${s} min`);
+        msg.className = "message";
+        msg.textContent = `A ${s}-minute snooze is safe: getting up at ${fmt(st.now + s)} still leaves ${pctT(pAt(st.now + s))} chance of being on time.`;
       } else {
-        $("message").className = "message refused";
-        $("message").textContent = `No safe snooze left. Even one more minute would drop your chance of being on time to ${pct(pAt(st.now + 1))}, below 90%. Get up now.`;
+        // refused: stays clickable (aria-disabled) so a tap answers with a shake
+        sn.disabled = false; sn.setAttribute("aria-disabled", "true"); sn.classList.add("no");
+        setLabel(sn, "No safe snooze", "not safe");
+        msg.className = "message refused";
+        const body = el("p", "r-body", "Even one more minute would drop your chance of being on time to");
+        const line = el("span", "r-line");
+        line.appendChild(el("span", "r-num", pctT(pAt(st.now + 1))));
+        line.appendChild(el("span", "r-th", `, below ${TH_PCT}%.`));
+        body.appendChild(document.createTextNode(" ")); body.appendChild(line);
+        msg.append(el("p", "r-head", "No safe snooze left."), body, el("p", "r-cta", "Get up now."));
       }
     } else if (st.mode === "snoozing") {
-      $("status").textContent = `Snoozing until ${fmt(st.until)}`;
-      sn.disabled = true; $("snoozeHint").textContent = "zzz";
-      up.firstChild.textContent = "I'm up"; $("upHint").textContent = "get up early";
+      $("status").textContent = `Snooze ${st.snoozes} · alarm off`;
+      $("subclock").textContent = `Snoozing until ${fmt(st.until)}`;
+      sn.disabled = true; setLabel(sn, "Snooze", "zzz");
+      setLabel(up, "I'm up", "get up early");
     } else if (st.mode === "up") {
       $("status").textContent = "You're up";
       $("subclock").textContent = `${st.snoozes} snooze${st.snoozes === 1 ? "" : "s"}`;
-      sn.disabled = true; $("snoozeHint").innerHTML = "&nbsp;";
-      up.firstChild.textContent = "Again"; $("upHint").textContent = "replay this morning";
+      sn.disabled = true; setLabel(sn, "Snooze", " ");
+      setLabel(up, "Again", "replay this morning");
       const g = S.plan.alternatives.gut_rule;
-      $("message").className = "message";
-      $("message").textContent = `You got up at ${fmt(st.now)} with ${pct(p)} chance of being on time. The fixed ${g.buffer_min}-minute buffer would have woken you at ${g.wake_time}.`;
+      msg.className = "message";
+      msg.textContent = `You got up at ${fmt(st.now)} with ${pctT(p)} chance of being on time. The fixed ${g.buffer_min}-minute buffer would have woken you at ${g.wake_time}.`;
     }
     renderChart();
   }
 
-  function tick(ts) {
-    if (!last) last = ts;
-    const dt = (ts - last) / 1000; last = ts;
-    if (st.mode === "snoozing") {
-      st.now = Math.min(st.until, st.now + (dt * speed) / 60);
-      if (st.now >= st.until) { st.now = st.until; st.mode = "ringing"; beep(); }
-      render();
-    }
-    raf = requestAnimationFrame(tick);
-  }
-
-  let audio = null;
-  function beep() {
-    try {
-      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
-      const o = audio.createOscillator(), g = audio.createGain();
-      o.frequency.value = 880; o.connect(g); g.connect(audio.destination);
-      g.gain.setValueAtTime(0.0001, audio.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.08, audio.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.35);
-      o.start(); o.stop(audio.currentTime + 0.4);
-    } catch (e) { /* sound is optional */ }
-  }
-
-  $("snooze").onclick = () => {
+  /* ---------- actions (buttons, keys, window.SO all go through these) ---------- */
+  function doStart() { if (st.mode !== "idle") return false; setState({ mode: "ringing" }); return true; }
+  function doSnooze() {
+    if (st.mode !== "ringing") return 0;
     const s = safeSnooze(st.now);
-    if (!s || st.mode !== "ringing") return;
+    if (!s) { shake(); sndRefuse(); log("refuse", { tap: true, p_next: pAt(st.now + 1) }); return 0; }
+    sndSnooze();
     $("message").className = "message";
-    $("message").textContent = `Snoozed ${s} min. Getting up at ${fmt(st.now + s)}: ${pct(pAt(st.now + s))} chance of being on time.`;
-    setState({ mode: "snoozing", until: st.now + s, snoozes: st.snoozes + 1 });
-  };
-  $("up").onclick = () => {
-    if (st.mode === "idle") { setState({ mode: "ringing" }); beep(); }
-    else if (st.mode === "up") reset();
-    else { st.now = Math.round(st.now); setState({ mode: "up" }); }
-  };
-  $("reset").onclick = () => reset();
-  document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => {
-    speed = Number(b.dataset.speed);
-    document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-  });
-
+    $("message").textContent = `Snoozed ${s} min. Getting up at ${fmt(st.now + s)}: ${pctT(pAt(st.now + s))} chance of being on time.`;
+    log("snooze", { minutes: s, until: fmt(st.now + s) });
+    setState({ mode: "snoozing", until: st.now + s, snoozes: st.snoozes + 1, granted: st.granted.concat([st.now + s]) });
+    return s;
+  }
+  function doUp() {
+    if (st.mode !== "ringing" && st.mode !== "snoozing") return false;
+    st.now = Math.round(st.now); log("up"); setState({ mode: "up" }); return true;
+  }
+  function primary() {
+    if (st.mode === "idle") doStart(); else if (st.mode === "up") reset(); else doUp();
+  }
   function reset() {
-    st = { mode: "idle", now: S.wake - D.first_ring_min, snoozes: 0, until: null };
+    ringStop();
+    st = { mode: "idle", now: S.wake - D.first_ring_min, snoozes: 0, until: null, granted: [], ringSince: 0 };
+    $("phone").classList.remove("shake");
     $("message").className = "message"; $("message").textContent = "";
     render();
   }
+  function setSpeed(v) {
+    speed = Number(v) > 0 ? Number(v) : speed;
+    document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(Number(x.dataset.speed) === speed)));
+  }
 
-  select(D.scenarios[0].id);
-  raf = requestAnimationFrame(tick);
+  $("snooze").onclick = () => { unlock(); doSnooze(); };
+  $("up").onclick = () => { unlock(); primary(); };
+  $("reset").onclick = () => { auto = null; reset(); };
+  document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => setSpeed(b.dataset.speed));
+  document.addEventListener("pointerdown", unlock, { once: true });
+
+  // Space = Snooze, Enter = Start / I'm up, R = Reset
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+    const k = e.key;
+    if (k !== " " && k !== "Enter" && k !== "r" && k !== "R") return;
+    const t = e.target.closest && e.target.closest("button, a, input, select, textarea");
+    if (!VIDEO && t && t.id !== "snooze" && t.id !== "up") return; // keep native keys on chips, links
+    e.preventDefault(); unlock(); auto = null;
+    if (k === " ") doSnooze(); else if (k === "Enter") primary(); else reset();
+  });
+
+  /* ---------- time: rAF in real time, or SO.advance(ms) for frame-exact recording ---------- */
+  function advance(dt) {
+    W += dt;
+    if (st.mode === "snoozing") {
+      st.now = Math.min(st.until, st.now + (dt * speed) / 60);
+      if (st.now >= st.until) { st.now = st.until; setState({ mode: "ringing" }); }
+      else render();
+    }
+    if (auto) {
+      if (st.mode === "idle" && W >= auto.startAt) doStart();
+      else if (st.mode === "ringing" && W - st.ringSince >= AUTO_DELAY - 1e-9) {
+        if (safeSnooze(st.now)) doSnooze(); else auto = null; // refused: hold, keep ringing
+      }
+    }
+  }
+  function tick(ts) {
+    const dt = last ? Math.min(0.25, (ts - last) / 1000) : 0; last = ts;
+    if (!manual) advance(dt);
+    requestAnimationFrame(tick);
+  }
+  let rz = 0;
+  window.addEventListener("resize", () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(renderChart); });
+
+  window.SO = {
+    scenarios: () => D.scenarios.map((s) => s.id),
+    select: (id) => select(id),
+    start: () => { if (VIDEO) unlock(); return doStart(); },
+    snooze: () => doSnooze(),
+    up: () => doUp(),
+    reset: () => { auto = null; reset(); },
+    setSpeed: (v) => setSpeed(v),
+    play: (lead) => { if (VIDEO) unlock(); reset(); auto = { startAt: W + (lead == null ? 0.3 : lead) }; },
+    manual: (on) => { manual = on !== false; last = 0; },
+    advance: (ms) => { advance(ms / 1000); return window.SO.state(); },
+    highlight: (key) => highlight(key),
+    state: () => ({ mode: st.mode, clock: fmt(st.now), now: st.now, snoozes: st.snoozes, safe: st.mode === "ringing" ? safeSnooze(st.now) : null, refused: st.mode === "ringing" && safeSnooze(st.now) === 0, t: W }),
+  };
+
+  if (!select(Q.get("scenario") || "")) select(D.scenarios[0].id);
+  if (Q.get("speed")) setSpeed(Q.get("speed"));
+  else if (VIDEO) setSpeed(300);
+  if (Q.get("highlight")) highlight(Q.get("highlight"));
+  if (Q.get("autoplay") === "1") window.SO.play(Number(Q.get("lead")) >= 0 && Q.get("lead") ? Number(Q.get("lead")) : 0.3);
+  requestAnimationFrame(tick);
 })();
 </script>
 </body>
