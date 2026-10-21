@@ -136,6 +136,7 @@ button:focus-visible { outline: 2px solid var(--dawn); outline-offset: 2px; }
 .pon b { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 18px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.06); }
 .pon.ok b { color: var(--good); }
 .pon.bad b { color: var(--warn); }
+.pon.edge b { color: var(--dawn); }
 .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
 .btn {
   appearance: none; border: 0; cursor: pointer; font: inherit; font-weight: 600; font-size: 17px; line-height: 1.25;
@@ -406,7 +407,7 @@ html.video body { min-height: 1080px; }
   function renderPlan() {
     const p = S.plan;
     $("planHead").textContent = S.scenario === "commute"
-      ? `${p.from.name} to ${p.to.name}, meeting at ${p.deadline}. Getting ready takes about ${D.prep_min} minutes.`
+      ? `${p.from.display || p.from.name} to ${p.to.name}, meeting at ${p.deadline}. Getting ready takes about ${D.prep_min} minutes.`
       : `${p.flight.carrier}${p.flight.number} from ${p.flight.origin} is scheduled to land at ${p.flight.airport} at ${p.flight.scheduled_arrival}. You leave from ${p.from.name}; the passenger needs about ${p.exit_buffer_min} minutes to get off the plane and collect bags.`;
     const kv = [
       ["wake", "Latest safe wake-up", p.wake_time, true],
@@ -615,7 +616,7 @@ html.video body { min-height: 1080px; }
     const ph = $("phone");
     $("clock").textContent = fmt(st.now);
     const p = pAt(st.now);
-    $("pon").className = "pon " + (p >= TH ? "ok" : "bad");
+    $("pon").className = "pon " + (st.mode === "ringing" && safeSnooze(st.now) === 0 ? "edge" : p >= TH ? "ok" : "bad");
     $("pon").lastChild.textContent = pctT(p);
     const s = st.mode === "ringing" ? safeSnooze(st.now) : -1;
     ph.classList.toggle("ringing", st.mode === "ringing");
@@ -641,12 +642,12 @@ html.video body { min-height: 1080px; }
       } else {
         // refused: stays clickable (aria-disabled) so a tap answers with a shake
         sn.disabled = false; sn.setAttribute("aria-disabled", "true"); sn.classList.add("no");
-        setLabel(sn, "No safe snooze", "not safe");
+        setLabel(sn, "No safe snooze", " ");
         msg.className = "message refused";
         const body = el("p", "r-body", "Even one more minute would drop your chance of being on time to");
         const line = el("span", "r-line");
         line.appendChild(el("span", "r-num", pctT(pAt(st.now + 1))));
-        line.appendChild(el("span", "r-th", `, below ${TH_PCT}%.`));
+        line.appendChild(el("span", "r-th", ` below ${TH_PCT}%.`));
         body.appendChild(document.createTextNode(" ")); body.appendChild(line);
         msg.append(el("p", "r-head", "No safe snooze left."), body, el("p", "r-cta", "Get up now."));
       }
@@ -654,7 +655,7 @@ html.video body { min-height: 1080px; }
       $("status").textContent = `Snooze ${st.snoozes} · alarm off`;
       $("subclock").textContent = `Snoozing until ${fmt(st.until)}`;
       sn.disabled = true; setLabel(sn, "Snooze", "zzz");
-      setLabel(up, "I'm up", "get up early");
+      setLabel(up, "I'm up", "stop snoozing");
     } else if (st.mode === "up") {
       $("status").textContent = "You're up";
       $("subclock").textContent = `${st.snoozes} snooze${st.snoozes === 1 ? "" : "s"}`;

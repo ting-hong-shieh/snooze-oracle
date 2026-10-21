@@ -21,6 +21,8 @@ from src.alarm.commute import CommuteScenario
 from src.alarm.core import Scenario
 
 from . import plan as P
+from src.ride.retrieval import zone_borough
+
 from . import zones
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,6 +73,8 @@ def build() -> Path:
                             "tabpfn", prep_min=PREP, prep_sd=P.PREP_SD, seed=0)
         wm = wake.hour * 60 + wake.minute
         rid = f"{p['from']['zone']}->{p['to']['zone']}"
+        p["from"]["display"] = (f"{SHORT.get(p['from']['name'], p['from']['name'])} "
+                                f"({zone_borough()[p['from']['zone']]})")
         bt = _late(ROOT / "data" / "commute" / "backtest_rows.parquet", {"route_id": rid},
                    ("gut_10", "tabpfn"))
         scen.append({
