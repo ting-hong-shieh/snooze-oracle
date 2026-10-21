@@ -53,21 +53,33 @@ def features_from_query(origin: str, carrier: str, crs_arr_ts, distance: float) 
     })
 
 
-class Encoder:
-    """Integer codes for origin/carrier learned on the training rows; unseen -> NaN."""
+# Round 2: dest (JFK/LGA, categorical) and the two previous-day regime features (regime.py).
+FEATURES_REGIME = FEATURES + ["dest", "origin_prev_dep_delay", "dest_prev_arr_delay"]
+CAT_FEATURES_REGIME = CAT_FEATURES + ["dest"]
 
-    def __init__(self, train: pd.DataFrame):
-        self.maps = {c: {v: i for i, v in enumerate(sorted(train[c].unique()))} for c in CAT_FEATURES}
+
+class Encoder:
+    """Integer codes for the categorical columns learned on the training rows; unseen -> NaN.
+    Defaults are the round-1 feature set."""
+
+    def __init__(self, train: pd.DataFrame, features: list[str] = FEATURES,
+                 cats: list[str] = CAT_FEATURES):
+        self.features, self.cats = list(features), list(cats)
+        self.maps = {c: {v: i for i, v in enumerate(sorted(train[c].unique()))} for c in self.cats}
+
+    @property
+    def cat_indices(self) -> list[int]:
+        return [self.features.index(c) for c in self.cats]
 
     def numeric(self, df: pd.DataFrame) -> np.ndarray:
-        X = df[FEATURES].copy()
-        for c in CAT_FEATURES:
+        X = df[self.features].copy()
+        for c in self.cats:
             X[c] = X[c].map(self.maps[c]).astype(float)
         return X.astype(float).to_numpy()
 
     def pandas_cat(self, df: pd.DataFrame) -> pd.DataFrame:
-        X = df[FEATURES].copy()
-        for c in CAT_FEATURES:
+        X = df[self.features].copy()
+        for c in self.cats:
             X[c] = pd.Categorical(X[c], categories=sorted(self.maps[c]))
         return X
 
