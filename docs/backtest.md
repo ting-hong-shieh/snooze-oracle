@@ -4,6 +4,8 @@ Flights scheduled 04:00-07:59: 1671 (plus 32 landing on 09-01, dropped), cancell
 
 95% intervals: day-level bootstrap (2,000 resamples of the 31 arrival days). Method, judgment calls and fairness notes: `src/alarm/README.md`. Chart: `docs/frontier.png`.
 
+The gut-rule curve is computed from August outcomes, so it is an oracle the night-before user cannot know; the models never saw August.
+
 ## all zones
 
 | strategy | late rate | median wait (min) | mean wake vs gut B=30 (min) |

@@ -290,7 +290,9 @@ def report() -> None:
           f"0.90: {meta.infeasible}. {REALITY_DRAWS} reality draws per scenario.",
           "", "95% intervals: day-level bootstrap (2,000 resamples of the 31 arrival days). "
           "Method, judgment calls and fairness notes: `src/alarm/README.md`. "
-          "Chart: `docs/frontier.png`.", ""]
+          "Chart: `docs/frontier.png`.", "",
+          "The gut-rule curve is computed from August outcomes, so it is an oracle the "
+          "night-before user cannot know; the models never saw August.", ""]
     all_stats = {}
     for split in ("all", "dense", "sparse"):
         base = np.ones(len(rows), bool) if split == "all" else (rows["kind"] == split).to_numpy()

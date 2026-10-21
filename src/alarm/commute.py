@@ -42,10 +42,16 @@ REF_B = 10
 PREP_MIN, PREP_SD = 15.0, 5.0
 REALITY_DRAWS = 5
 RADII = (15, 30)
+SPARSE_RADII = (15,)
 WAKE_RANGE = (-240, 0)
 SEED = 20261022
 MODELS = ("lookup", "lgbm", "tabpfn")
 PREFIX = "commute_ride"
+# Midtown Center, Midtown East, Midtown North, Financial District North and South,
+# West Chelsea/Hudson Yards (TLC zone lookup ids)
+DESTS = (161, 162, 163, 87, 88, 246)
+MIN_MILES = 3.0
+MAX_DENSE_PER_DEST = 2
 
 
 # ------------------------------------------------------------------ data and routes
@@ -55,25 +61,16 @@ def _sql(month_start: str, month_end: str, extra: str = "") -> str:
 
     path = PROCESSED / f"uber_trips_{month_start[:7]}.parquet"
     return f"""
-        SELECT {COLS} FROM read_parquet('{path}')
+        SELECT {COLS}, trip_miles FROM read_parquet('{path}')
         WHERE dow < 5
           AND request_ts >= TIMESTAMP '{month_start}' AND request_ts < TIMESTAMP '{month_end}'
           {extra}
     """
 
 
-@lru_cache(maxsize=None)
 def destinations() -> tuple[int, ...]:
-    """The 6 zones with the most July weekday drop-offs requested 07:00-09:59 (airports and
-    unknown zones excluded)."""
-    from src.ride.retrieval import connect
-
-    d = connect().execute(f"""
-        SELECT do_zone, count(*) AS n FROM ({_sql('2026-07-01', '2026-08-01')})
-        WHERE req_hour BETWEEN 7 AND 9 AND do_zone NOT IN {AIRPORTS + UNKNOWN}
-        GROUP BY do_zone ORDER BY n DESC, do_zone LIMIT 6
-    """).fetchdf()
-    return tuple(int(z) for z in d["do_zone"])
+    """The 6 destination zones (fixed by name, see DESTS)."""
+    return DESTS
 
 
 @lru_cache(maxsize=None)
@@ -83,7 +80,7 @@ def load(month: str) -> pd.DataFrame:
 
     start, end = {"2026-07": ("2026-07-01", "2026-08-01"),
                   "2026-08": ("2026-08-01", "2026-09-01")}[month]
-    path = OUTC / f"trips_{month}.parquet"
+    path = OUTC / f"trips_{month}_{'-'.join(map(str, destinations()))}.parquet"
     if not path.exists():
         OUTC.mkdir(parents=True, exist_ok=True)
         extra = (f"AND req_min_of_day BETWEEN {GRID[0]} AND {GRID[-1]} "
@@ -94,26 +91,40 @@ def load(month: str) -> pd.DataFrame:
 
 
 def choose_routes() -> pd.DataFrame:
-    """12 origin -> destination routes, counted on weekday trips requested 06:00-09:59:
-    6 dense = the most July trips; 6 sparse = 10-29 July trips, one per borough in turn
-    (boroughs ordered by their best candidate), each borough's candidates ranked by August
-    trips (so the same-date reality pool is as full as possible), then by zone id.
-    Origins exclude the destination zones, airports and unknown zones."""
+    """12 origin -> destination routes, counted on weekday trips requested 06:00-09:59.
+    Eligible: origin in a different borough from the destination, or July median trip
+    distance >= MIN_MILES. Origins exclude the destination zones, airports and unknown zones.
+    6 dense = the most July trips, at most MAX_DENSE_PER_DEST per destination.
+    6 sparse = 10-29 July trips, one per borough in turn (boroughs ordered by their best
+    candidate), each borough's candidates ranked by August trips, then by zone id."""
     from src.ride.retrieval import zone_borough
 
-    dest = destinations()
-    excl = set(dest) | set(AIRPORTS) | set(UNKNOWN)
+    excl = set(destinations()) | set(AIRPORTS) | set(UNKNOWN)
 
-    def counts(month):
+    def window(month):
         t = load(month)
-        t = t[t["req_hour"].between(6, 9) & ~t["pu_zone"].isin(excl)]
-        return t.groupby(["pu_zone", "do_zone"]).size()
+        return t[t["req_hour"].between(6, 9) & ~t["pu_zone"].isin(excl)]
 
-    d = pd.concat([counts("2026-07").rename("jul"), counts("2026-08").rename("aug")],
-                  axis=1).fillna(0).astype(int).reset_index()
-    d["borough"] = d["pu_zone"].map(zone_borough())
-    dense = d.sort_values(["jul", "pu_zone"], ascending=[False, True]).head(6)
-    cand = d[d["jul"].between(10, 29) & ~d["borough"].isin(["EWR", "Unknown", "N/A"])]
+    jul, aug = window("2026-07"), window("2026-08")
+    g = jul.groupby(["pu_zone", "do_zone"])
+    d = pd.concat([g.size().rename("jul"), g["trip_miles"].median().rename("jul_median_miles"),
+                   aug.groupby(["pu_zone", "do_zone"]).size().rename("aug")], axis=1)
+    d[["jul", "aug"]] = d[["jul", "aug"]].fillna(0).astype(int)
+    d = d.reset_index()
+    zb = zone_borough()
+    d["borough"] = d["pu_zone"].map(zb)
+    d["do_borough"] = d["do_zone"].map(zb)
+    d = d[(d["borough"] != d["do_borough"]) | (d["jul_median_miles"] >= MIN_MILES)]
+    d = d[~d["borough"].isin(["EWR", "Unknown", "N/A"])]
+    dense_rows, per_dest = [], {}
+    for idx, r in d.sort_values(["jul", "pu_zone"], ascending=[False, True]).iterrows():
+        if per_dest.get(r.do_zone, 0) < MAX_DENSE_PER_DEST:
+            dense_rows.append(idx)
+            per_dest[r.do_zone] = per_dest.get(r.do_zone, 0) + 1
+        if len(dense_rows) == 6:
+            break
+    dense = d.loc[dense_rows]
+    cand = d[d["jul"].between(10, 29)]
     cand = cand.sort_values(["aug", "jul", "pu_zone"], ascending=[False, False, True])
     queues = {b: list(g.index) for b, g in cand.groupby("borough", sort=False)}
     order = list(dict.fromkeys(cand["borough"]))       # boroughs by their best candidate
@@ -126,11 +137,10 @@ def choose_routes() -> pd.DataFrame:
     names = pd.read_csv(ROOT / "data" / "raw" / "taxi_zone_lookup.csv").set_index("LocationID")
     r["pu_name"] = r["pu_zone"].map(names["Zone"])
     r["do_name"] = r["do_zone"].map(names["Zone"])
-    r["do_borough"] = r["do_zone"].map(zone_borough())
     r = r.reset_index(drop=True)
     r.insert(0, "route_id", [f"{a}->{b}" for a, b in zip(r.pu_zone, r.do_zone)])
     r.to_csv(ROUTES, index=False)
-    print(f"destinations: {dest}")
+    print(f"destinations: {destinations()}")
     print(r.to_string(index=False))
     return r
 
@@ -173,19 +183,25 @@ class CommuteScenario(Scenario):
 # ------------------------------------------------------------------ backtest
 
 class SameDayPool:
-    """Real August trips per (route, date), for the reality ride draws."""
+    """Real August weekday trips for the reality ride draws.
+    Dense routes: same route and same date, +-15 min, else +-30 min (RADII).
+    Sparse routes (weaker reality): same route on ANY August weekday, +-15 min
+    (SPARSE_RADII), because a sparse route rarely has a trip on the same date."""
 
     def __init__(self):
         t = load("2026-08")
         t = t.assign(date=t["request_ts"].dt.normalize())
         self.g = {k: (v["req_min_of_day"].to_numpy(), v["total_min"].to_numpy())
                   for k, v in t.groupby(["pu_zone", "do_zone", "date"])}
+        self.route = {k: (v["req_min_of_day"].to_numpy(), v["total_min"].to_numpy())
+                      for k, v in t.groupby(["pu_zone", "do_zone"])}
 
-    def draw(self, key, request_min: np.ndarray, u: np.ndarray):
-        m, v = self.g.get(key, (np.array([]), np.array([])))
+    def draw(self, key, request_min: np.ndarray, u: np.ndarray, any_day: bool = False):
+        src, radii = (self.route, SPARSE_RADII) if any_day else (self.g, RADII)
+        m, v = src.get(key[:2] if any_day else key, (np.array([]), np.array([])))
         out, rad = np.full(len(u), np.nan), np.zeros(len(u), int)
         for i, (t, uu) in enumerate(zip(request_min, u)):
-            for r in RADII:
+            for r in radii:
                 w = np.sort(v[np.abs(m - t) <= r])
                 if len(w):
                     out[i], rad[i] = np.quantile(w, uu), r
@@ -224,7 +240,8 @@ def run() -> None:
                 u = rng.uniform(0, 1, REALITY_DRAWS)
                 res = {}
                 for k, w in wake.items():
-                    res[k] = (w, *pool.draw((key[0], key[1], date), w + prep, u))
+                    res[k] = (w, *pool.draw((key[0], key[1], date), w + prep, u,
+                                            any_day=rt.kind == "sparse"))
                 if any(np.isnan(r[1]).any() for r in res.values()):
                     skipped[rt.kind] += 1
                     continue
@@ -283,23 +300,37 @@ def report() -> None:
 
     md = ["# Commute backtest, August 2026 weekdays", "",
           "Wake up, get ready (prep ~ N(15, 5) min), request an Uber, arrive before the meeting. "
-          "Strategies pick one wake time the night before; reality uses real trips on the same "
-          "date and route. Method, judgment calls and fairness notes are at the end.", "",
+          "Strategies pick one wake time the night before; reality uses real August trips "
+          "(see Scenarios for the two definitions). Method, judgment calls and fairness notes "
+          "are at the end.", "",
+          "The gut-rule curve is computed from August outcomes, so it is an oracle the "
+          "night-before user cannot know; the models never saw August.", "",
           "## Routes", "",
-          "Trips counted on weekday requests 06:00-09:59 (July = training month).", "",
-          "| kind | route | origin | borough | destination | July trips | August trips |",
-          "|---|---|---|---|---|---|---|"]
+          "Trips counted on weekday requests 06:00-09:59 (July = training month). Eligible "
+          f"routes: origin in another borough, or July median trip distance >= {MIN_MILES:g} mi; "
+          f"at most {MAX_DENSE_PER_DEST} dense routes per destination.", "",
+          "| kind | route | origin | origin borough | destination | July median miles | "
+          "July trips | August trips |",
+          "|---|---|---|---|---|---|---|---|"]
     for r in routes.itertuples():
         md.append(f"| {r.kind} | {r.route_id} | {r.pu_name} | {r.borough} | {r.do_name} | "
-                  f"{r.jul} | {r.aug} |")
-    md += ["", f"Destinations (most July weekday drop-offs requested 07:00-09:59, airports "
-               f"excluded): {', '.join(map(str, destinations()))}.", "",
+                  f"{r.jul_median_miles:.1f} | {r.jul} | {r.aug} |")
+    md += ["", "Destinations: Midtown Center (161), Midtown East (162), Midtown North (163), "
+               "Financial District North (87) and South (88), West Chelsea/Hudson Yards (246).",
+           "",
            "## Scenarios", "",
            f"{meta.weekdays} August weekdays x 12 routes x 5 meeting times (08:00-10:00) = "
-           f"{meta.scenarios} scenarios. Skipped because some strategy's request time had no "
-           f"real trip on that date and route within +-30 min: {meta.skipped}. Kept: "
-           f"{meta.kept}. Reality draws that needed the +-30 min window: "
-           f"{meta.draws_at_30min:.1%}. Wake ranges with no time reaching 0.90: "
+           f"{meta.scenarios} scenarios.", "",
+           "Reality ride, two definitions:", "",
+           "- **dense routes**: real trips on the same route and the same August date, requested "
+           "within +-15 min of the strategy's request time, else +-30 min.",
+           "- **sparse routes (weaker reality)**: real trips on the same route on ANY August "
+           "weekday, requested within +-15 min. This keeps sparse scenarios from being skipped, "
+           "but it loses that day's traffic, so sparse late rates describe a typical weekday "
+           "rather than the actual day.", "",
+           f"Skipped because some strategy's request time had no trip in its pool: "
+           f"{meta.skipped}. Kept: {meta.kept}. Dense reality draws that needed the +-30 min "
+           f"window: {meta.draws_at_30min:.1%}. Wake ranges with no time reaching 0.90: "
            f"{meta.infeasible}. {REALITY_DRAWS} reality draws per scenario.", "",
            "95% intervals: day-level bootstrap (2,000 resamples of the August weekdays).", ""]
 
@@ -426,7 +457,7 @@ def frontier_chart(all_stats: dict) -> None:
     splits = list(all_stats)
     fig, axes = plt.subplots(2, len(splits), figsize=(5 * len(splits), 9.5), facecolor=SURFACE,
                              gridspec_kw={"height_ratios": [1, 1.1]}, squeeze=False)
-    offset = {"lookup": (10, 8), "lgbm": (10, -14), "tabpfn": (-10, -16)}
+    offset = {"lookup": (-70, 40), "lgbm": (50, 45), "tabpfn": (50, -45)}
     for col, split in enumerate(splits):
         st = all_stats[split]
         ex = [st[s]["early"][0] for s in MODELS]
@@ -453,7 +484,9 @@ def frontier_chart(all_stats: dict) -> None:
                 if row == 1:
                     ax.annotate(LABEL[s], (e[0], l[0]), textcoords="offset points",
                                 xytext=offset[s], fontsize=9, color=INK,
-                                ha="right" if offset[s][0] < 0 else "left")
+                                ha="right" if offset[s][0] < 0 else "left", va="center",
+                                arrowprops={"arrowstyle": "-", "color": COLOR[s], "lw": 1,
+                                            "shrinkA": 2, "shrinkB": 6})
             ax.set_xlabel("median minutes early", color=INK2)
             if row == 0:
                 ax.set_title(f"{split} routes", color=INK, fontsize=12, loc="left")
@@ -533,34 +566,31 @@ NOTES = """## Method notes
 
 ## Judgment calls
 
-- Destinations exclude airports (JFK and LGA are among the busiest morning drop-offs but are
-  not workplaces) and unknown zones 264/265.
+- Destinations are the six zones named in the request (ids from the TLC zone lookup).
 - "Residential" origins have no TLC label; they are every zone except the destinations,
-  airports and 264/265. The dense rule (most July weekday 06:00-09:59 trips) picks four short
-  Queens hops into Jamaica (130), one Upper East Side -> Midtown and one Canarsie -> East New
-  York; it was applied as written.
-- Sparse routes: 10-29 July trips, one borough at a time (boroughs ordered by their best
-  candidate), ranked by August trips so the same-date reality pool is as full as possible.
+  airports, 264/265 and EWR, and must be in another borough than the destination or have a
+  July median trip distance of at least 3 miles on that route (06:00-09:59 weekday trips).
+- Dense: the most July trips among eligible routes, at most two per destination, taken in
+  order of trips. Sparse: 10-29 July trips among eligible routes, one borough at a time
+  (boroughs ordered by their best candidate), ranked by August trips, then zone id.
 - Weekdays are Monday-Friday; Friday 2026-07-03 (Independence Day observed) stays in training.
 - The ride table grid covers request 05:00-10:59; the latest safe wake is searched over the
   4 hours before the meeting.
 - The gut-rule curve used for the gap is every B from 0 to 30 minutes; the reported gut
   strategies are B in {0, 5, 10, 15, 20, 30}.
-- Risk spread: weights per route = kept scenarios, recomputed in every bootstrap replicate
-  (a route with no scenario on the drawn days has weight 0). MAD10 (mean distance from 10%)
-  answers "closer to 10%"; the fixed-buffer comparator is the gut B whose overall late rate
-  is closest to 10%.
+- Risk spread: weights per route = kept scenarios, recomputed in every bootstrap replicate.
+  MAD10 (mean distance from 10%) answers "closer to 10%"; the fixed-buffer comparator is the
+  gut B whose overall late rate is closest to 10%.
 
 ## Fairness
 
-- 541 of 630 sparse scenarios were skipped: a sparse route rarely has a real trip on the
-  same date within +-30 min. The 89 kept sparse scenarios are the busier days and times of
-  those routes, so the sparse results are a small, selected sample with wide intervals.
+- The gut-rule curve is an oracle: it is drawn from August outcomes; the night-before user
+  cannot know which B lands where. Models never saw August.
+- Sparse routes use the weaker any-weekday reality, so their late rates are not comparable
+  one-to-one with the dense routes' same-date reality.
 - Lookup and LightGBM use all July rows in the setting; TabPFN uses a 10k retrieval context
   per route and hour. Nothing was tuned.
-- The reality pool is the same date and route, so it carries that day's traffic, which no
-  model saw; it is the same for every strategy.
-- One month of weekdays (21 days) and 12 routes; four of the six dense routes end in Jamaica.
+- One month of weekdays (21 days) and 12 routes.
 """
 
 
