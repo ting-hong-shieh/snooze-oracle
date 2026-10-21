@@ -330,9 +330,196 @@ def report() -> None:
                    f"(min {sn['snoozes'].min()}, max {sn['snoozes'].max()}), 1 refusal per scenario "
                    f"(the alarm keeps ringing).", ""]
         all_stats[split] = stats
+    gmd, gstats = groups_section(rows, boot)
+    md += gmd
     (ROOT / "docs" / "backtest.md").write_text("\n".join(md) + "\n")
     print("\n".join(md))
     frontier(all_stats)
+    risk_chart(gstats)
+
+
+# ------------------------------------------------------------------ risk by flight type
+
+GROUP_STRATEGIES = ["gut_30", "schedule", "lookup", "lgbm", "tabpfn"]
+TOP_ORIGINS = 10
+
+
+def scenario_flights(rows: pd.DataFrame) -> pd.DataFrame:
+    """Flight attributes per scenario; the scenario id is '<flight index>_<pu_zone>' into
+    flights() (deterministic order)."""
+    f, _ = flights()
+    sc = rows.loc[rows["draw"].eq(0) & rows["strategy"].eq("gut_30"),
+                  ["scenario", "date", "dest", "kind", "pu_zone"]].copy()
+    fi = sc["scenario"].str.split("_").str[0].astype(int).to_numpy()
+    fl = f.iloc[fi].reset_index(drop=True)
+    assert (fl["dest"].to_numpy() == sc["dest"].to_numpy()).all()
+    assert (pd.to_datetime(fl["crs_arr_ts"]).dt.date.astype(str).to_numpy()
+            == sc["date"].to_numpy()).all()
+    sc = sc.reset_index(drop=True)
+    for c in ("origin", "carrier", "distance", "crs_arr_ts", "flight_num"):
+        sc[c] = fl[c].to_numpy()
+    top = sc["origin"].value_counts().head(TOP_ORIGINS).index
+    sc["origin_group"] = np.where(sc["origin"].isin(top), sc["origin"], "other")
+    sc["stage"] = pd.cut(sc["distance"], [-np.inf, 499.999, 1500, np.inf],
+                         labels=["short (<500 mi)", "medium (500-1500 mi)",
+                                 "long/red-eye (>1500 mi)"]).astype(str)
+    return sc
+
+
+def groups_section(rows: pd.DataFrame, boot: Boot) -> tuple[list[str], dict]:
+    sc = scenario_flights(rows)
+    rows = rows.merge(sc[["scenario", "origin_group", "stage", "origin", "carrier",
+                          "distance", "crs_arr_ts"]], on="scenario", how="left")
+    late, wait = rows["late"].to_numpy(float), rows["wait_min"].to_numpy(float)
+    strat = rows["strategy"].to_numpy()
+    md = ["## Risk by flight type", "",
+          "Late rate and median airport wait per group (95% day-bootstrap intervals). "
+          "Groups are by scenario; every scenario has the same 5 reality draws.", ""]
+    order_origin = list(sc["origin"].value_counts().head(TOP_ORIGINS).index) + ["other"]
+    dims = [("origin airport (top 10 by scenarios)", "origin_group", order_origin),
+            ("stage length", "stage", ["short (<500 mi)", "medium (500-1500 mi)",
+                                       "long/red-eye (>1500 mi)"]),
+            ("pickup zone density", "kind", ["dense", "sparse"]),
+            ("destination", "dest", ["JFK", "LGA"])]
+    gstats = {}
+    for title, col, levels in dims:
+        lines = ["| group | scenarios | " + " | ".join(LABEL[s] for s in GROUP_STRATEGIES) + " |",
+                 "|---|---|" + "---|" * len(GROUP_STRATEGIES)]
+        stats = {}
+        gv = rows[col].to_numpy()
+        for g in levels:
+            gm = gv == g
+            n_sc = int(sc[col].eq(g).sum())
+            cells = []
+            for s in GROUP_STRATEGIES:
+                m = gm & (strat == s)
+                lt, wt = boot.mean(late, m), boot.median(wait, m)
+                stats[(g, s)] = (lt, wt, n_sc)
+                lo, hi = np.percentile(lt[1:], [2.5, 97.5])
+                wlo, whi = np.percentile(wt[1:], [2.5, 97.5])
+                cells.append(f"{100 * lt[0]:.1f}% [{100 * lo:.1f}, {100 * hi:.1f}]; "
+                             f"wait {wt[0]:.0f} [{wlo:.0f}, {whi:.0f}]")
+            lines.append(f"| {g} | {n_sc:,} | " + " | ".join(cells) + " |")
+        gstats[col] = (levels, stats)
+        md += [f"### By {title}", "", "Each cell: late rate [95% CI]; median wait in minutes "
+               "[95% CI].", "", *lines, ""]
+
+    # 2. spread across origin groups
+    levels, stats = gstats["origin_group"]
+    md += ["### Spread of late rates across the origin groups", "",
+           "Across the 11 origin groups (top 10 + other): min, max, and the standard deviation "
+           "weighted by scenario count, in percentage points. Interval for the weighted SD from "
+           "the same day bootstrap.", "",
+           "| strategy | min | max | weighted SD [95% CI] | groups with CI excluding 10% |",
+           "|---|---|---|---|---|"]
+    sds = {}
+    for s in GROUP_STRATEGIES:
+        L = np.stack([stats[(g, s)][0] for g in levels])          # (G, 1 + N_BOOT)
+        w = np.array([stats[(g, s)][2] for g in levels], float)
+        mu = (w[:, None] * L).sum(0) / w.sum()
+        sd = np.sqrt((w[:, None] * (L - mu) ** 2).sum(0) / w.sum())
+        sds[s] = sd
+        lo, hi = np.percentile(sd[1:], [2.5, 97.5])
+        off = sum(1 for g in levels
+                  if not (np.percentile(stats[(g, s)][0][1:], 2.5) <= 0.10
+                          <= np.percentile(stats[(g, s)][0][1:], 97.5)))
+        imin, imax = int(np.argmin(L[:, 0])), int(np.argmax(L[:, 0]))
+        md.append(f"| {LABEL[s]} | {100 * L[imin, 0]:.1f}% ({levels[imin]}) | "
+                  f"{100 * L[imax, 0]:.1f}% ({levels[imax]}) | "
+                  f"{100 * sd[0]:.1f} [{100 * lo:.1f}, {100 * hi:.1f}] | {off} of {len(levels)} |")
+    md.append("")
+    for s in ("lookup", "lgbm", "tabpfn"):
+        d = sds[s] - sds["gut_30"]
+        lo, hi = np.percentile(d[1:], [2.5, 97.5])
+        md.append(f"- Weighted SD, {LABEL[s]} minus gut B=30: {100 * d[0]:+.1f} "
+                  f"[{100 * lo:+.1f}, {100 * hi:+.1f}] points "
+                  f"({'more even' if hi < 0 else 'less even' if lo > 0 else 'no clear difference'}).")
+    md.append("")
+
+    # 3. TabPFN wake minus gut B=30
+    w = rows[rows["draw"].eq(0)].pivot(index="scenario", columns="strategy", values="wake_min")
+    d = (w["tabpfn"] - w["gut_30"]).rename("diff").reset_index().merge(sc, on="scenario")
+    later, earlier = d["diff"] >= 10, d["diff"] <= -10
+    q = np.percentile(d["diff"], [5, 25, 50, 75, 95])
+    md += ["### TabPFN wake time minus gut B=30 wake time, per scenario", "",
+           f"{len(d):,} scenarios. Percentiles (5/25/50/75/95): "
+           + " / ".join(f"{v:+.1f}" for v in q) + " min. "
+           f"Sleep 10+ min longer: {later.mean():.1%} ({later.sum():,}); "
+           f"woken 10+ min earlier: {earlier.mean():.1%} ({earlier.sum():,}).", ""]
+    lr = rows[rows["strategy"].isin(["tabpfn", "gut_30"])].merge(d[["scenario", "diff"]],
+                                                                  on="scenario")
+    for name, mask in (("sleep 10+ min longer", later), ("woken 10+ min earlier", earlier)):
+        sub = d[mask]
+        if not len(sub):
+            md += [f"**{name}**: none.", ""]
+            continue
+        ids = set(sub["scenario"])
+        r2 = lr[lr["scenario"].isin(ids)]
+        lt = r2.groupby("strategy")["late"].mean()
+        hrs = pd.to_datetime(sub["crs_arr_ts"]).dt.hour.value_counts().sort_index()
+        md += [f"**{name}** ({len(sub):,} scenarios, {sub['date'].nunique()} days). "
+               f"Late rate in these scenarios: TabPFN {lt.get('tabpfn', np.nan):.1%}, "
+               f"gut B=30 {lt.get('gut_30', np.nan):.1%}.", "",
+               "- origins: " + ", ".join(f"{k} {v}" for k, v in
+                                         sub["origin"].value_counts().head(8).items()),
+               "- carriers: " + ", ".join(f"{k} {v}" for k, v in
+                                          sub["carrier"].value_counts().head(6).items()),
+               "- stage: " + ", ".join(f"{k} {v}" for k, v in sub["stage"].value_counts().items()),
+               "- destination: " + ", ".join(f"{k} {v}" for k, v in
+                                             sub["dest"].value_counts().items()),
+               "- pickup zones: " + ", ".join(f"{k} {v}" for k, v in
+                                              sub["kind"].value_counts().items()),
+               "- scheduled arrival hour: " + ", ".join(f"{k}:00 {v}" for k, v in hrs.items()),
+               ""]
+    return md, gstats
+
+
+def risk_chart(gstats: dict) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    ink, ink2, grid, surface = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
+    color = {"gut_30": ink2, "schedule": "#eb6834", "lookup": "#1baf7a", "lgbm": "#eda100",
+             "tabpfn": "#2a78d6"}
+    marker = {"gut_30": "o", "schedule": "s", "lookup": "^", "lgbm": "D", "tabpfn": "o"}
+    levels, stats = gstats["origin_group"]
+    x = np.arange(len(levels))
+    fig, axes = plt.subplots(2, 1, figsize=(13, 9), facecolor=surface,
+                             gridspec_kw={"height_ratios": [1, 1.3]})
+    for row, ax in enumerate(axes):
+        shown = GROUP_STRATEGIES if row == 0 else [s for s in GROUP_STRATEGIES if s != "schedule"]
+        offs = np.linspace(-0.28, 0.28, len(shown))
+        for o, s in zip(offs, shown):
+            L = np.stack([100 * stats[(g, s)][0] for g in levels])
+            lo, hi = np.percentile(L[:, 1:], [2.5, 97.5], axis=1)
+            ax.errorbar(x + o, L[:, 0], yerr=[L[:, 0] - lo, hi - L[:, 0]], fmt=marker[s],
+                        ms=8, color=color[s], mfc=surface if s == "gut_30" else color[s],
+                        mec=color[s] if s == "gut_30" else surface, mew=1.8, ecolor=color[s],
+                        elinewidth=1.4, capsize=0, label=LABEL[s], zorder=3)
+        ax.axhline(10, color=ink, lw=1, ls="--", zorder=2)
+        ax.annotate("10% target", (-0.62, 10), xytext=(0, 3), textcoords="offset points",
+                    ha="left", va="bottom", fontsize=9, color=ink)
+        ax.set_xlim(-0.65, len(levels) - 0.4)
+        ax.set_xticks(x, [f"{g}\n{stats[(g, 'tabpfn')][2]:,}" for g in levels], color=ink2)
+        ax.set_ylabel("late rate (%)", color=ink2)
+        ax.set_facecolor(surface)
+        ax.grid(axis="y", color=grid, lw=1)
+        ax.tick_params(colors=ink2)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+        if row == 1:
+            ax.set_ylim(0, 30)
+            ax.set_title("without schedule only, zoomed to 0-30%", color=ink2, fontsize=10,
+                         loc="left")
+            ax.set_xlabel("origin airport (scenarios underneath)", color=ink2)
+    axes[0].legend(ncol=5, loc="upper left", frameon=False, fontsize=9)
+    axes[0].set_ylim(0, 75)
+    fig.suptitle("Late rate by origin airport, August 2026 backtest (95% day-bootstrap "
+                 "intervals)", color=ink, fontsize=13, x=0.01, ha="left")
+    fig.tight_layout()
+    fig.savefig(ROOT / "docs" / "risk_by_flight.png", dpi=150, facecolor=surface)
+    print("wrote docs/risk_by_flight.png")
 
 
 def frontier(all_stats: dict) -> None:
