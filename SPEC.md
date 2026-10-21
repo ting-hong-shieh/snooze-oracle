@@ -1,8 +1,11 @@
 # Project spec (shared by all sessions — read this first)
 
 Working name: **Snooze Oracle** — an alarm that lets you snooze only while an open
-tabular model (TabPFN-3.5, run locally) says you will still make it on time, and that
-tells you whether requesting your Uber 10 minutes later would save money.
+tabular model (TabPFN-3.5, run locally) says you will still make it on time: to a fixed
+deadline, or to pick someone up from an early-morning flight at JFK / LGA.
+
+Dropped: a "wait 10 minutes to save on the fare" feature. The data says snoozing 10 minutes
+does not save money; see `docs/findings.md`.
 
 Challenge: Hacktoberfest 2026 DEV Open-Source AI Challenge, Week 3 "Slow and Steady".
 Deadline: 2026-10-25 23:59 PDT (= 2026-10-26 14:59 Taipei). Target categories:
@@ -15,9 +18,11 @@ Best Use of TabPFN (primary), Gemma, Temporal, Sentry (only if actually used).
 | NYC TLC High Volume FHV trips | `https://d37ci6vzurychx.cloudfront.net/trip-data/fhvhv_tripdata_YYYY-MM.parquet` | Monthly parquet, latest 2026-08. Times are NYC local, naive. |
 | NYC taxi zone lookup | `https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv` | 265 zones. JFK = 132, LaGuardia = 138, Newark = 1. |
 | Open-Meteo historical weather | `https://archive-api.open-meteo.com/v1/archive` | Hourly precipitation for NYC (later step). |
-| BTS on-time performance | `https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_YYYY_M.zip` | Monthly zip of one CSV, US carriers' domestic flights only (no foreign airlines, no international arrivals). Local times as hhmm. Airport-pickup scenario (stretch goal). |
+| BTS on-time performance | `https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_YYYY_M.zip` | Monthly zip of one CSV, US carriers' domestic flights only (no foreign airlines, no international arrivals). Local times as hhmm. Airport-pickup scenario. |
 
-Months: **train = 2026-07, test = 2026-08** (time-based holdout; never shuffle across months).
+Months (time-based holdout; never shuffle across months):
+- Rides: **train = 2026-07, test = 2026-08**.
+- Flights: **train = 2025-08 … 2026-07** (12 months), **test = 2026-08**.
 
 ## Processed trip table (`data/processed/uber_trips_YYYY-MM.parquet`)
 
@@ -63,6 +68,7 @@ from the BTS file for that month (the month is `FlightDate`, i.e. the departure 
 | `arr_hhmm` | int | `ArrTime` (actual arrival, NYC local); null if cancelled/diverted |
 | `arr_delay` | float | `ArrDelay` minutes (negative = early); null if cancelled/diverted |
 | `cancelled`, `diverted` | bool | `Cancelled = 1`, `Diverted = 1` |
+| `distance` | float | `Distance` (miles, origin to dest) |
 | `crs_arr_min_of_day` | int | `crs_arr_hhmm` as minutes, 0–1439 |
 | `crs_arr_ts` | timestamp | scheduled arrival, NYC local: `flight_date` + 1 day if `crs_arr_hhmm < crs_dep_hhmm` (red-eyes), + `crs_arr_min_of_day` |
 
@@ -79,11 +85,26 @@ flights only (cancelled and diverted are counted separately).
   buckets; mean within-bucket fare P90–P10 spread.
 - Ties in "busiest" rankings are broken by `pu_zone`, `do_zone` (or `origin`).
 
-## Interfaces each session must expose
+## Code layout and ownership
 
-Session 1 — snooze alarm:
+| Path | Owner | Branch |
+|---|---|---|
+| `scripts/`, `SPEC.md`, `docs/` | shared (main) | `main` |
+| `src/ride/` | ride workstream | `ride-model` |
+| `src/flight/` | flight workstream | `flight-model` |
+
+A workstream edits only its own `src/` folder. Changes to shared files go through main.
+
+## Interfaces
+
+Ride workstream (`src/ride/`):
 
 ```python
+def ride_total_samples(pu_zone: int, do_zone: int, request_ts: datetime,
+                       n: int = 2000) -> np.ndarray:
+    """n sampled total_min values (request -> drop-off, minutes) for an Uber requested
+    at request_ts from pu_zone to do_zone."""
+
 def p_on_time(pu_zone: int, do_zone: int, wake_time: datetime, deadline: datetime,
               prep_min: float = 15.0, prep_sd: float = 5.0) -> float:
     """Probability of arriving by `deadline` if you get up at `wake_time`,
@@ -93,30 +114,46 @@ def snooze_curve(pu_zone, do_zone, deadline, start, end, step_min=1, **prep) -> 
     """Columns: wake_time, p_on_time. Precomputed the night before; the alarm only reads it."""
 ```
 
+Flight workstream (`src/flight/`):
+
+```python
+def flight_arrival_samples(origin: str, carrier: str, crs_arr_ts: datetime,
+                           n: int = 2000) -> np.ndarray:
+    """n sampled ArrDelay minutes for a flight from `origin` on `carrier`
+    (`airline` column) scheduled to arrive at crs_arr_ts (NYC local),
+    conditional on the flight not being cancelled."""
+
+def p_cancel(origin: str, carrier: str, crs_arr_ts: datetime) -> float:
+    """Probability the flight is cancelled. Reported separately, never mixed into the
+    ArrDelay samples."""
+```
+
 Snooze rule: allow a snooze of length `s` only if `p_on_time(wake_time = now + s) >= 0.90`;
 `s` = largest such value up to 9 minutes. Otherwise refuse and keep ringing.
 
-Session 2 — wait-to-save fare:
+Pickup scenario (meeting a flight): you are on time if
 
-```python
-def fare_saving(pu_zone: int, do_zone: int, request_time: datetime,
-                delay_min: int = 10) -> dict:
-    """Predicted fare distribution now vs. after `delay_min`.
-    Returns {"now": {"p10","p50","p90"}, "later": {...}, "expected_saving": float}."""
-```
+    wake + prep + ride_total <= actual_arrival + exit_buffer
 
-## Evaluation (both sessions)
+where `prep ~ N(prep_min, prep_sd)`, the ride is requested at `wake + prep`,
+`ride_total` comes from `ride_total_samples`, `actual_arrival = crs_arr_ts + ArrDelay`
+from `flight_arrival_samples`, and `exit_buffer` (deplaning and bags) is a user parameter,
+default 20 minutes. Being early is fine; being late is the failure. `p_cancel` is shown
+next to `p_on_time`, not folded into it.
+
+## Evaluation (both workstreams)
 
 Compare on the 2026-08 holdout, same features, default settings, no tuning:
-1. Human rule: fixed buffer (e.g. "leave 30 min early").
-2. Lookup table: empirical quantiles per (pu_zone, do_zone, req_hour, is_weekend) cell.
+1. Human rule: fixed buffer (e.g. "leave 30 min early"); for flights, schedule only (delay = 0).
+2. Lookup table: empirical quantiles per (pu_zone, do_zone, req_hour, is_weekend) cell for
+   rides; per origin and per origin x carrier for flights.
 3. LightGBM quantile regression, defaults.
 4. TabPFN-3.5 regressor (local), quantile outputs.
 
-Report: P90 coverage, pinball loss, and the decision metrics — average extra minutes of
-sleep and late rate (alarm); average dollars saved and how often waiting cost more (fare).
-Break results down by data density (dense routes vs sparse early-morning / rare routes) —
-that is where TabPFN is expected to matter.
+Report: coverage (P90 for rides; P10 and P90 for flights), pinball loss, and the decision
+metrics — average extra minutes of sleep and late rate. Break results down by data density
+(dense routes vs sparse early-morning / rare routes; for flights, training flights per
+origin x carrier) — that is where TabPFN is expected to matter.
 
 ## Constraints
 
