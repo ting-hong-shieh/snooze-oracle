@@ -25,10 +25,13 @@ def key_name(pu_zone: int, do_zone: int, h: int) -> str:
     return f"r3_{int(pu_zone)}_{int(do_zone)}_{int(h)}"
 
 
-def context_rows(pu_zone: int, do_zone: int, h: int) -> tuple[pd.DataFrame, int, int]:
-    """(context, own-route rows, borough fill rows)."""
-    tr = load_train()
-    lo, hi = hour_band(h)
+def context_rows(pu_zone: int, do_zone: int, h: int, train: pd.DataFrame | None = None,
+                 hours: range | None = None) -> tuple[pd.DataFrame, int, int]:
+    """(context, own-route rows, borough fill rows). `train` and `hours` (the request-hour
+    window the band is truncated to) default to the airport setting."""
+    tr = load_train() if train is None else train
+    lo, hi = hour_band(h) if hours is None else (max(h - 2, hours.start),
+                                                 min(h + 2, hours.stop - 1))
     band = tr["req_hour"].between(lo, hi) & (tr["do_zone"] == do_zone)
     own_m = band & (tr["pu_zone"] == pu_zone)
     own = tr[own_m]

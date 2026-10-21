@@ -48,8 +48,9 @@ def _sorted(q: np.ndarray) -> np.ndarray:
 
 # ------------------------------------------------------------------ ride
 
-def ride_queries(routes: list[tuple[int, int]], dates: list[pd.Timestamp]) -> pd.DataFrame:
-    rows = [(pu, do, d, t) for pu, do in routes for d in dates for t in RIDE_GRID]
+def ride_queries(routes: list[tuple[int, int]], dates: list[pd.Timestamp],
+                 grid: np.ndarray = RIDE_GRID) -> pd.DataFrame:
+    rows = [(pu, do, d, t) for pu, do in routes for d in dates for t in grid]
     q = pd.DataFrame(rows, columns=["pu_zone", "do_zone", "date", "t_min"])
     q["req_min_of_day"] = q["t_min"]
     q["req_hour"] = q["t_min"] // 60
@@ -58,11 +59,11 @@ def ride_queries(routes: list[tuple[int, int]], dates: list[pd.Timestamp]) -> pd
     return q
 
 
-def ride_lookup(q: pd.DataFrame) -> np.ndarray:
+def ride_lookup(q: pd.DataFrame, train: pd.DataFrame | None = None) -> np.ndarray:
     from src.ride.baselines import LOOKUP_LEVELS, LOOKUP_MIN_ROWS
     from src.ride.retrieval import load_train
 
-    tr = load_train()
+    tr = load_train() if train is None else train
     out = np.full((len(q), len(LEVELS)), np.nan)
     todo = np.ones(len(q), bool)
     for keys in LOOKUP_LEVELS:
@@ -82,13 +83,13 @@ def ride_lookup(q: pd.DataFrame) -> np.ndarray:
     return _sorted(out)
 
 
-def ride_lgbm(q: pd.DataFrame) -> np.ndarray:
+def ride_lgbm(q: pd.DataFrame, train: pd.DataFrame | None = None) -> np.ndarray:
     import lightgbm as lgb
 
     from src.ride.baselines import LGBM_THREADS, _lgbm_frame
     from src.ride.retrieval import load_train
 
-    tr = load_train()
+    tr = load_train() if train is None else train
     Xtr, Xq = _lgbm_frame(tr), _lgbm_frame(q)
     out = np.zeros((len(q), len(LEVELS)))
     for j, a in enumerate(LEVELS):
@@ -101,7 +102,8 @@ def ride_lgbm(q: pd.DataFrame) -> np.ndarray:
     return _sorted(out)
 
 
-def ride_tabpfn(q: pd.DataFrame) -> np.ndarray:
+def ride_tabpfn(q: pd.DataFrame, train: pd.DataFrame | None = None,
+                hours: range | None = None) -> np.ndarray:
     """One fit per (route, hour) r3 context; takes the GPU lock per batch of contexts."""
     import torch
 
@@ -119,7 +121,7 @@ def ride_tabpfn(q: pd.DataFrame) -> np.ndarray:
             try:
                 while i < len(groups) and time.time() - t0 < 120:
                     (pu, do, h), idx = groups[i]
-                    ctx, _, _ = context_rows(pu, do, h)
+                    ctx, _, _ = context_rows(pu, do, h, train, hours)
                     m = fit_context(ctx, "cuda")
                     res = m.predict(q.iloc[idx][FEATURES].to_numpy(np.float64),
                                     output_type="quantiles", quantiles=[float(a) for a in LEVELS])
@@ -134,16 +136,21 @@ def ride_tabpfn(q: pd.DataFrame) -> np.ndarray:
     return _sorted(out)
 
 
-def build_ride(routes, dates, models=MODELS) -> None:
+def build_ride(routes, dates, models=MODELS, train: pd.DataFrame | None = None,
+               grid: np.ndarray = RIDE_GRID, hours: range | None = None,
+               prefix: str = "ride") -> None:
+    """Defaults: the airport setting. The commute scenario passes its own training rows,
+    request-time grid, hour window and file prefix."""
     OUT.mkdir(parents=True, exist_ok=True)
-    q = ride_queries(routes, dates)
-    fn = {"lookup": ride_lookup, "lgbm": ride_lgbm, "tabpfn": ride_tabpfn}
+    q = ride_queries(routes, dates, grid)
+    fn = {"lookup": lambda: ride_lookup(q, train), "lgbm": lambda: ride_lgbm(q, train),
+          "tabpfn": lambda: ride_tabpfn(q, train, hours)}
     for m in models:
         t = time.time()
-        vals = fn[m](q)
+        vals = fn[m]()
         df = q[["pu_zone", "do_zone", "date", "t_min"]].copy()
         df[LCOLS] = vals
-        df.to_parquet(OUT / f"ride_{m}.parquet", index=False)
+        df.to_parquet(OUT / f"{prefix}_{m}.parquet", index=False)
         print(f"ride {m}: {len(df):,} rows, {time.time() - t:.0f}s", flush=True)
 
 

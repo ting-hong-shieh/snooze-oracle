@@ -33,13 +33,13 @@ THRESHOLD = 0.90
 
 
 @lru_cache(maxsize=None)
-def _ride_table(model: str) -> dict:
-    df = pd.read_parquet(OUT / f"ride_{model}.parquet")
+def _ride_table(model: str, prefix: str = "ride", grid: tuple = tuple(RIDE_GRID)) -> dict:
+    df = pd.read_parquet(OUT / f"{prefix}_{model}.parquet")
     df["date"] = pd.to_datetime(df["date"]).dt.date
     out = {}
     for (pu, do, d), g in df.groupby(["pu_zone", "do_zone", "date"]):
         g = g.sort_values("t_min")
-        assert (g["t_min"].to_numpy() == RIDE_GRID).all()
+        assert (g["t_min"].to_numpy() == np.asarray(grid)).all()
         out[(int(pu), int(do), d)] = g[LCOLS].to_numpy()
     return out
 
@@ -53,7 +53,11 @@ def _flight_table(model: str) -> dict:
 
 
 class Scenario:
-    """Monte Carlo state for one (pickup zone, flight, model)."""
+    """Monte Carlo state for one (pickup zone, flight, model). Subclasses (the commute
+    scenario) set grid, wake_range, ride_q and ready differently."""
+
+    grid = RIDE_GRID
+    wake_range = WAKE_RANGE
 
     def __init__(self, pu_zone: int, flight: dict, model: str = "tabpfn",
                  prep_min: float = 15.0, prep_sd: float = 5.0, exit_buffer: float = 20.0,
@@ -79,9 +83,10 @@ class Scenario:
         self.ready = self.crs + self.delay + exit_buffer  # passenger out, minutes
 
     def ride(self, request_min: np.ndarray) -> np.ndarray:
-        t = np.clip(request_min, RIDE_GRID[0], RIDE_GRID[-1])
-        tp = np.interp(t, RIDE_GRID, np.arange(len(RIDE_GRID)))
-        ti = np.minimum(tp.astype(int), len(RIDE_GRID) - 2)
+        g = self.grid
+        t = np.clip(request_min, g[0], g[-1])
+        tp = np.interp(t, g, np.arange(len(g)))
+        ti = np.minimum(tp.astype(int), len(g) - 2)
         tw = tp - ti
         Q = self.ride_q
         li, lw = self.li, self.lw
@@ -100,7 +105,7 @@ class Scenario:
         """(wake minute, feasible). Bisection on whole minutes; assumes p_on_time is
         non-increasing in the wake time (checked against a full 1-minute scan on a sample
         of scenarios, see scan_latest_safe_wake)."""
-        lo, hi = float(self.crs + WAKE_RANGE[0]), float(self.crs + WAKE_RANGE[1])
+        lo, hi = float(self.crs + self.wake_range[0]), float(self.crs + self.wake_range[1])
         if self.p_on_time(lo)[0] < threshold:
             return lo, False
         if self.p_on_time(hi)[0] >= threshold:
@@ -115,7 +120,7 @@ class Scenario:
 
     def scan_latest_safe_wake(self, threshold: float = THRESHOLD) -> tuple[float, bool]:
         """Reference: last 1-minute wake time before p_on_time first drops below threshold."""
-        w = np.arange(self.crs + WAKE_RANGE[0], self.crs + WAKE_RANGE[1] + 1, 1.0)
+        w = np.arange(self.crs + self.wake_range[0], self.crs + self.wake_range[1] + 1, 1.0)
         ok = self.p_on_time(w) >= threshold
         if not ok[0]:
             return w[0], False
