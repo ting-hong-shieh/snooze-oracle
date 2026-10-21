@@ -1,5 +1,9 @@
 # Flight workstream: results (holdout 2026-08)
 
+> Round 2 is in `RESULTS_round2.md`. Since round 2, `model.py` takes the GPU lock itself and
+> uses dest; run its smoke test as `python -m src.flight.model` **without** `flock` (wrapping it
+> would wait on itself). Everything else below still reproduces as written.
+
 ArrDelay (minutes) for flights into JFK and LGA scheduled to arrive 03:00-08:59
 (`crs_arr_hhmm` 300-859), flown flights only. Train = flights dated 2025-08 ... 2026-07
 (28,672 flown rows), test = flights dated 2026-08 (2,487 flown rows). Every model was fit on
