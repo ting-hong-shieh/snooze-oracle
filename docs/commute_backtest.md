@@ -153,6 +153,28 @@ Model strategies minus gut B=9 (paired over the same bootstrap draws):
 - LightGBM p>=0.90: weighted SD -1.8 [-2.8, -0.9], MAD10 0.4 [-0.7, 1.1] points
 - TabPFN p>=0.90: weighted SD -3.7 [-4.6, -2.8], MAD10 0.2 [-1.0, 1.2] points
 
+TabPFN weighted SD minus the other model strategies (paired over the same bootstrap draws), points:
+
+- TabPFN minus LightGBM p>=0.90: -1.9 [-2.8, -0.9]
+- TabPFN minus lookup p>=0.90: -2.0 [-2.6, -1.2]
+
+### Worst-route late rate
+
+For each strategy, the highest late rate among the 12 routes (in every bootstrap replicate the maximum is taken over the routes present in that replicate, so the worst route can differ between strategies and replicates), and TabPFN minus each other strategy, paired over the same draws. Percent / points. A maximum over noisy route estimates is biased upward (more so for routes with few scenarios), which is why some point estimates sit near the lower end of their interval; the paired differences cancel part of that bias but not all of it.
+
+| strategy | worst route (point estimate) | worst-route late rate [95% CI] | TabPFN minus this strategy [95% CI] |
+|---|---|---|---|
+| gut B=0 | 74->88 | 58.5 [57.1, 63.8] | -45.8 [-51.7, -43.5] |
+| gut B=5 | 235->161 | 39.4 [35.6, 43.5] | -26.7 [-30.8, -22.9] |
+| gut B=10 | 235->161 | 22.9 [18.4, 27.6] | -10.2 [-13.3, -6.7] |
+| gut B=15 | 235->161 | 14.0 [10.2, 17.8] | -1.3 [-4.3, 1.6] |
+| gut B=20 | 235->161 | 9.2 [7.0, 11.4] | 3.5 [0.0, 7.3] |
+| gut B=30 | 118->88 | 2.9 [1.6, 4.8] | 9.8 [5.7, 13.7] |
+| lookup p>=0.90 | 235->161 | 21.3 [16.5, 26.7] | -8.6 [-12.1, -5.1] |
+| LightGBM p>=0.90 | 52->163 | 17.3 [13.9, 22.3] | -4.6 [-9.5, -1.6] |
+| TabPFN p>=0.90 | 235->161 | 12.7 [9.5, 16.2] | - |
+| gut B=9 | 235->161 | 27.0 [22.2, 32.1] | -14.3 [-18.1, -10.5] |
+
 ## Method notes
 
 - Setting: weekdays only, request 05:00-10:59, drop-off in the 6 destination zones; July 2026

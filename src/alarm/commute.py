@@ -434,6 +434,31 @@ def risk_section(rows, boot, late, strat, routes, st_all) -> list[str]:
         dsd = 100 * (res[s][0] - res[f"gut_{comp}"][0])
         dmad = 100 * (res[s][1] - res[f"gut_{comp}"][1])
         md.append(f"- {LABEL[s]}: weighted SD {ci(dsd, 1)}, MAD10 {ci(dmad, 1)} points")
+    md += ["", "TabPFN weighted SD minus the other model strategies (paired over the same "
+               "bootstrap draws), points:", ""]
+    for o in ("lgbm", "lookup"):
+        md.append(f"- TabPFN minus {LABEL[o]}: {ci(100 * (res['tabpfn'][0] - res[o][0]), 1)}")
+
+    def worst(a):
+        """Highest route late rate per replicate, over routes present in that replicate."""
+        return np.where(W > 0, np.nan_to_num(a), -np.inf).max(axis=0)
+
+    others = STRATS + ([f"gut_{comp}"] if comp not in GUT_B else [])
+    wst = {s: worst(per[s]) for s in others}
+    md += ["", "### Worst-route late rate", "",
+           "For each strategy, the highest late rate among the 12 routes (in every bootstrap "
+           "replicate the maximum is taken over the routes present in that replicate, so the "
+           "worst route can differ between strategies and replicates), and TabPFN minus each "
+           "other strategy, paired over the same draws. Percent / points. A maximum over "
+           "noisy route estimates is biased upward (more so for routes with few scenarios), "
+           "which is why some point estimates sit near the lower end of their interval; the "
+           "paired differences cancel part of that bias but not all of it.", "",
+           "| strategy | worst route (point estimate) | worst-route late rate [95% CI] | "
+           "TabPFN minus this strategy [95% CI] |", "|---|---|---|---|"]
+    for s in others:
+        i_w = int(np.nanargmax(per[s][:, 0]))
+        diff = "-" if s == "tabpfn" else ci(100 * (wst["tabpfn"] - wst[s]), 1)
+        md.append(f"| {LABEL[s]} | {order[i_w]} | {ci(100 * wst[s], 1)} | {diff} |")
     md.append("")
     risk_chart(order, kind, n_sc, per, comp)
     return md
