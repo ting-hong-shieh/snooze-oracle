@@ -101,9 +101,10 @@ Ride workstream (`src/ride/`):
 
 ```python
 def ride_total_samples(pu_zone: int, do_zone: int, request_ts: datetime,
-                       n: int = 2000) -> np.ndarray:
+                       n: int = 2000, rng: np.random.Generator | None = None) -> np.ndarray:
     """n sampled total_min values (request -> drop-off, minutes) for an Uber requested
-    at request_ts from pu_zone to do_zone."""
+    at request_ts from pu_zone to do_zone, in random order. Pass `rng` for a reproducible
+    order; never pair two arrays drawn with the same seeded order."""
 
 def p_on_time(pu_zone: int, do_zone: int, wake_time: datetime, deadline: datetime,
               prep_min: float = 15.0, prep_sd: float = 5.0) -> float:
@@ -118,15 +119,22 @@ Flight workstream (`src/flight/`):
 
 ```python
 def flight_arrival_samples(origin: str, carrier: str, crs_arr_ts: datetime,
-                           n: int = 2000) -> np.ndarray:
+                           n: int = 2000, dest: str | None = None) -> np.ndarray:
     """n sampled ArrDelay minutes for a flight from `origin` on `carrier`
     (`airline` column) scheduled to arrive at crs_arr_ts (NYC local),
-    conditional on the flight not being cancelled."""
+    conditional on the flight not being cancelled. `dest` is "JFK" or "LGA" when known."""
 
-def p_cancel(origin: str, carrier: str, crs_arr_ts: datetime) -> float:
+def p_cancel(origin: str, carrier: str, crs_arr_ts: datetime,
+             dest: str | None = None) -> float:
     """Probability the flight is cancelled. Reported separately, never mixed into the
     ArrDelay samples."""
 ```
+
+Predictions are precomputed in a batch the night before (TabPFN predict calls take tens of
+seconds to minutes); the alarm and the pickup page only read the precomputed results.
+
+Flight modelling window: arrivals with `crs_arr_hhmm` 0300–0859 (wider than the 0400–0759
+"early-morning" window used for exploration).
 
 Snooze rule: allow a snooze of length `s` only if `p_on_time(wake_time = now + s) >= 0.90`;
 `s` = largest such value up to 9 minutes. Otherwise refuse and keep ringing.
