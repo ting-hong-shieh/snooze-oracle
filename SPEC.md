@@ -158,7 +158,8 @@ Flight modelling window: arrivals with `crs_arr_hhmm` 0300–0859 (wider than th
 "early-morning" window used for exploration).
 
 Snooze rule: allow a snooze of length `s` only if `p_on_time(wake_time = now + s) >= 0.90`;
-`s` = largest such value up to 9 minutes. Otherwise refuse and keep ringing.
+`s` = largest such value up to 10 minutes (Android Clock's default snooze; the backtest
+in `src/alarm/backtest.py` used 9). Otherwise refuse and keep ringing.
 
 Alarm (`src/alarm/`, pickup scenario):
 

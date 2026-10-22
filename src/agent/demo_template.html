@@ -752,7 +752,7 @@ html.video body { min-height: 1080px; }
     manual: (on) => { manual = on !== false; last = 0; },
     advance: (ms) => { advance(ms / 1000); return window.SO.state(); },
     highlight: (key) => highlight(key),
-    state: () => ({ mode: st.mode, clock: fmt(st.now), now: st.now, snoozes: st.snoozes, safe: st.mode === "ringing" ? safeSnooze(st.now) : null, refused: st.mode === "ringing" && safeSnooze(st.now) === 0, t: W }),
+    state: () => ({ mode: st.mode, clock: fmt(st.now), now: st.now, snoozes: st.snoozes, safe: st.mode === "ringing" ? safeSnooze(st.now) : null, max: D.snooze_max_min, refused: st.mode === "ringing" && safeSnooze(st.now) === 0, t: W }),
   };
 
   if (!select(Q.get("scenario") || "")) select(D.scenarios[0].id);

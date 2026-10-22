@@ -29,7 +29,7 @@ DEFAULT_DATE = date(2026, 8, 12)   # a Wednesday in the test month
 PREP_SD = 5.0
 EXIT_BUFFER = 20.0
 FIRST_RING_MIN = 30
-SNOOZE_MAX_MIN = 9
+SNOOZE_MAX_MIN = 10  # Google Clock's default snooze; the backtest (src/alarm/backtest.py) used 9
 GUT_B = {"commute": 10, "pickup": 30}
 REPLAY_NOTE = ("Replay: the data ends in August 2026, so this plans the morning of {d} "
                "using what was known the night before. Alarms in the .ics file use the same "
