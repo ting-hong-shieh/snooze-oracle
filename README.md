@@ -36,16 +36,18 @@ airport for a pickup. TabPFN gets up to 10,000 July trips as examples: trips on 
 route around the requested hour first, then trips from the same borough to the same
 destination. It is not trained or fine-tuned.
 
-<p align="center"><img src="docs/img/curve.png" width="720" alt="Chance of being on time by wake-up time for the demo morning: near 100% until about 07:35, 90% at 07:44, 51% at 07:57"></p>
+![Chance of being on time by wake-up time for the demo morning: near 100% until about 07:35, 90% at 07:44, 51% at 07:57](docs/img/curve_wide.png)
 
-<p align="center"><img src="docs/img/demo_grid.png" width="720" alt="The alarm at 07:14, 07:24, 07:34 and 07:44, where it refuses another snooze"></p>
+On the demo page the alarm plays this out: three 10-minute snoozes, then it refuses.
+
+![The alarm at 07:14, 07:24, 07:34 and 07:44, where it refuses another snooze](docs/img/demo_strip.png)
 
 ## Results
 
 Every strategy picks one wake-up time the night before and is scored against what really
 happened in August 2026. The models only saw July.
 
-<p align="center"><img src="docs/img/results.png" width="720" alt="Late mornings in the August replay: all 12 routes, 10-minute buffer 8.3%, 13-minute buffer 5.1%, TabPFN alarm 5.1%; the demo route, 22.9%, 17.1% and 12.7%"></p>
+![Late mornings in the August replay: all 12 routes, 10-minute buffer 8.3%, 13-minute buffer 5.1%, TabPFN alarm 5.1%; the demo route, 22.9%, 17.1% and 12.7%](docs/img/results_wide.png)
 
 | Share of mornings late | Airport | Commute | Demo route |
 |---|---|---|---|
