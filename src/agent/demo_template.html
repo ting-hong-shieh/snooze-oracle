@@ -207,6 +207,17 @@ footer a, .card a { color: var(--ink-2); }
   .phone.refused { box-shadow: var(--shadow), 0 0 0 4px rgba(255, 138, 106, 0.22); }
 }
 
+/* route map: TLC taxi zones, drawn by renderMap() */
+.map-svg { display: block; width: 100%; height: 260px; margin-top: 10px; border-radius: 16px; background: rgba(2, 4, 12, 0.7); border: 1px solid rgba(255,255,255,0.06); }
+.map-svg .mz { fill: rgba(182, 189, 214, 0.12); stroke: rgba(182, 189, 214, 0.15); stroke-width: 0.75px; vector-effect: non-scaling-stroke; }
+.map-svg .mb { fill: none; stroke: rgba(182, 189, 214, 0.32); stroke-width: 1px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.map-svg .mz-o { fill: rgba(246, 201, 107, 0.26); stroke: var(--dawn); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.map-svg .mz-d { fill: rgba(122, 167, 255, 0.26); stroke: var(--model); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.map-svg .ml { fill: var(--ink); font-weight: 600; paint-order: stroke; stroke: #070b18; stroke-linejoin: round; }
+.map-svg .ml-k { fill: var(--ink-3); font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; }
+.map-svg .ml-k.o { fill: var(--dawn); }
+.map-svg .ml-k.d { fill: var(--model); }
+
 /* video mode: ?video=1, laid out for a 1920x1080 frame */
 html.video, html.video * { cursor: none !important; }
 html.video body { min-height: 1080px; }
@@ -255,7 +266,7 @@ html.video body { min-height: 1080px; }
 .video .kv .k { font-size: 18px; line-height: 1.3; }
 .video .kv .v { font-size: 44px; line-height: 1.2; }
 .video .compare { font-size: 21px; }
-.video .controls, .video footer, .video .bt { display: none; }
+.video .controls, .video footer, .video .bt, .video .map-card { display: none; }
 </style>
 </head>
 <body>
@@ -307,6 +318,12 @@ html.video body { min-height: 1080px; }
         <p class="plan-head" id="planHead"></p>
         <div class="plan-grid" id="planGrid"></div>
         <p class="compare" id="planCompare"></p>
+      </section>
+
+      <section class="card map-card">
+        <h2>The ride</h2>
+        <svg id="map" class="map-svg" role="img" aria-label="Map of the ride"><g id="mapBase"></g><g id="mapTop"></g></svg>
+        <p class="fine" id="mapNote"></p>
       </section>
 
       <section class="card">
@@ -362,6 +379,7 @@ html.video body { min-height: 1080px; }
   const hideCompare = Q.get("focus") === "plan" || (VIDEO && !show.has("compare"));
   if (hideCompare) $("planCompare").classList.add("hide");
   if (VIDEO && show.has("backtest")) document.querySelector(".bt").style.display = "block";
+  if (VIDEO && show.has("map")) document.querySelector(".map-card").style.display = "block";
 
   window.__events = [];
   function log(type, extra) {
@@ -401,7 +419,7 @@ html.video body { min-height: 1080px; }
     S.wake = toMin(S.plan.wake_time);
     document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.id === id)));
     auto = null;
-    renderPlan(); renderBars(); reset();
+    renderPlan(); renderBars(); renderMap(); reset();
     return true;
   }
 
@@ -451,6 +469,100 @@ html.video body { min-height: 1080px; }
     });
     const where = S.scenario === "commute" ? "this route" : `pickups from ${S.plan.from.name} at ${S.plan.flight.airport}`;
     $("btNote").textContent = `Late rate on ${where}, ${b.tabpfn.mornings} simulated mornings in August 2026. Reality: ${b.reality}.`;
+  }
+
+  /* ---------- route map: simplified TLC taxi zones (25-ft units, y down), embedded at build time ---------- */
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const sv = (tag, attrs, parent) => {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const ZONES = new Map(D.map.zones.map((z) => [z.id, z]));
+  (() => {
+    const base = $("mapBase");
+    D.map.zones.forEach((z) => sv("path", { d: z.d, class: "mz", "data-zone": z.id }, base));
+    Object.values(D.map.boroughs).forEach((d) => sv("path", { d, class: "mb" }, base));
+  })();
+  const STILL = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function renderMap() {
+    const svg = $("map"), top = $("mapTop"), m = S.map;
+    if (!svg.getClientRects().length) return; // card hidden (video mode)
+    const za = ZONES.get(m.from), zb = ZONES.get(m.to);
+    const Wpx = Math.max(280, Math.round(svg.getBoundingClientRect().width) || 520);
+    const Hpx = Math.round(Math.min(360, Math.max(230, Wpx * 0.62)));
+    svg.style.height = `${Hpx}px`;
+    // frame both zones with room for the labels, at the element's aspect ratio
+    top.innerHTML = "";
+    const pa = sv("path", { d: za.d, class: "mz-o" }, top), pb = sv("path", { d: zb.d, class: "mz-d" }, top);
+    const ba = pa.getBBox(), bb = pb.getBBox();
+    let x0 = Math.min(ba.x, bb.x), y0 = Math.min(ba.y, bb.y);
+    let x1 = Math.max(ba.x + ba.width, bb.x + bb.width), y1 = Math.max(ba.y + ba.height, bb.y + bb.height);
+    const span = Math.max(x1 - x0, y1 - y0, 360);
+    const pad = span * 0.22;
+    x0 -= pad; x1 += pad; y0 -= pad * 1.2; y1 += pad * 1.2;
+    let w = x1 - x0, h = y1 - y0;
+    const ar = Wpx / Hpx;
+    if (w / h < ar) { const nw = h * ar; x0 -= (nw - w) / 2; w = nw; } else { const nh = w / ar; y0 -= (nh - h) / 2; h = nh; }
+    svg.setAttribute("viewBox", `${x0.toFixed(1)} ${y0.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
+    const k = w / Wpx; // map units per css pixel
+
+    // a smooth schematic arc between the zone centroids
+    const [ax, ay] = za.c, [bx, by] = zb.c;
+    const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+    const bend = 0.18 * len * (dx >= 0 ? 1 : -1);
+    const cx = (ax + bx) / 2 + (-dy / len) * bend, cy = (ay + by) / 2 + (dx / len) * bend;
+    const d = `M${ax} ${ay}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${bx} ${by}`;
+    const gid = "mapGrad";
+    const defs = sv("defs", {}, top);
+    const g = sv("linearGradient", { id: gid, gradientUnits: "userSpaceOnUse", x1: ax, y1: ay, x2: bx, y2: by }, defs);
+    sv("stop", { offset: "0", "stop-color": "#f6c96b" }, g);
+    sv("stop", { offset: "1", "stop-color": "#7aa7ff" }, g);
+    sv("path", { d, fill: "none", stroke: "#070b18", "stroke-opacity": 0.6, "stroke-width": 7 * k, "stroke-linecap": "round" }, top);
+    const route = sv("path", { d, fill: "none", stroke: `url(#${gid})`, "stroke-width": 2.75 * k, "stroke-linecap": "round", "stroke-dasharray": `${6 * k} ${5 * k}` }, top);
+    sv("circle", { cx: ax, cy: ay, r: 5 * k, fill: "#f6c96b", stroke: "#070b18", "stroke-width": 2 * k }, top);
+    sv("circle", { cx: bx, cy: by, r: 5 * k, fill: "#7aa7ff", stroke: "#070b18", "stroke-width": 2 * k }, top);
+    // the car: a small dot that rides the arc (still at 55% under reduced motion)
+    const qp = (t) => [(1 - t) * (1 - t) * ax + 2 * (1 - t) * t * cx + t * t * bx, (1 - t) * (1 - t) * ay + 2 * (1 - t) * t * cy + t * t * by];
+    const car = sv("g", {}, top);
+    sv("circle", { r: 9 * k, fill: "rgba(238,241,251,0.18)" }, car);
+    sv("circle", { r: 4.5 * k, fill: "#eef1fb", stroke: "#070b18", "stroke-width": 1.5 * k }, car);
+    if (STILL || VIDEO) {
+      const [px, py] = qp(0.55); car.setAttribute("transform", `translate(${px.toFixed(1)} ${py.toFixed(1)})`);
+    } else {
+      sv("animateMotion", { dur: "6s", repeatCount: "indefinite", path: d, keyPoints: "0;1;1", keyTimes: "0;0.8;1", calcMode: "spline", keySplines: "0.45 0 0.55 1;0 0 1 1" }, car);
+    }
+
+    // labels: put each one on the far side of its point from the other end, kept inside the frame
+    const fs = 13 * k, fk = 10.5 * k;
+    const kinds = S.scenario === "commute"
+      ? [["Start", m.from_label], [`Meeting ${S.deadline}`, m.to_label]]
+      : [["Leave from", m.from_label], [`Pickup · lands ${S.deadline}`, m.to_label]];
+    [[ax, ay, "o"], [bx, by, "d"]].forEach(([px, py, cls], i) => {
+      // label on the side the arc does not arrive from
+      const up = Math.abs(py - cy) > 1e-6 ? py < cy : i === 0;
+      const t = sv("text", { "text-anchor": "middle", "font-size": fs }, top);
+      const tk = sv("tspan", { class: `ml-k ${cls}`, "font-size": fk, x: px }, t);
+      tk.textContent = kinds[i][0];
+      const tn = sv("tspan", { class: "ml", x: px, dy: fs * 1.25, "stroke-width": 4 * k }, t);
+      tn.textContent = kinds[i][1];
+      tk.setAttribute("stroke", "#070b18"); tk.setAttribute("stroke-width", 4 * k); tk.setAttribute("paint-order", "stroke");
+      const bh = fs * 1.25 + fk; // block height (approx.)
+      const gap = 11 * k;
+      const yTop = up ? py - gap - bh : py + gap;
+      const bw = Math.max(tk.getComputedTextLength(), tn.getComputedTextLength());
+      const edge = 8 * k;
+      const lx = Math.max(x0 + edge + bw / 2, Math.min(x0 + w - edge - bw / 2, px));
+      const ly = Math.max(y0 + edge, Math.min(y0 + h - edge - bh, yTop));
+      t.setAttribute("y", (ly + fk * 0.85).toFixed(1));
+      tk.setAttribute("x", lx.toFixed(1)); tn.setAttribute("x", lx.toFixed(1));
+      tk.setAttribute("y", (ly + fk * 0.85).toFixed(1));
+    });
+    svg.setAttribute("aria-label", `Map from ${m.from_label} to ${m.to_label}, drawn as a straight-line sketch`);
+    $("mapNote").textContent = "Route drawn as a straight-line sketch, not the street route." + (Number.isFinite(m.ride_median_min)
+      ? ` Usual ride: about ${m.ride_median_min} min, the median of past trips that the fixed-buffer rule above uses.` : "");
   }
 
   function renderChart() {
@@ -739,7 +851,7 @@ html.video body { min-height: 1080px; }
     requestAnimationFrame(tick);
   }
   let rz = 0;
-  window.addEventListener("resize", () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(renderChart); });
+  window.addEventListener("resize", () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => { renderChart(); renderMap(); }); });
 
   window.SO = {
     scenarios: () => D.scenarios.map((s) => s.id),
