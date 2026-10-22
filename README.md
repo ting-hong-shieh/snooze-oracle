@@ -1,7 +1,8 @@
 # Snooze Oracle
 
 An alarm that works out, the night before, the latest time you can get up and still be on
-time with 90% probability, and then lets you snooze only while you would still make it.
+time with an estimated 90% probability. It rings 30 minutes earlier and allows snoozes of up
+to 10 minutes until that cutoff, then refuses.
 
 Two mornings are covered:
 
@@ -11,6 +12,15 @@ Two mornings are covered:
 **Demo:** <https://snooze.eliasshieh.com> replays six August 2026 mornings (four commutes,
 two airport pickups) with a simulated alarm clock. The page is static: the curves were
 precomputed and nothing on it calls a model.
+
+**Video (100 s):** <https://youtu.be/HcZXvemBTq8>. Narration: ElevenLabs; music: ACE-Step 1.5;
+3D scenes: three.js.
+
+**Results (August 2026 replay, models saw only July):** across 12 commute routes the alarm
+was late 5.1% of the time and a fixed 10-minute buffer 8.3%, for about 2.9 minutes less
+sleep. On the demo route (few Uber trips) it was late 12.7%, against 22.9% for the 10-minute
+buffer and 17.1% for a 13-minute buffer, still above its 10% target. Airport pickups: 10.3%
+against 9.1% for a lookup table.
 
 Ride times come from TabPFN-3.5 run locally on NYC TLC Uber trips; flight delays from
 TabPFN-3.5 on BTS on-time data. The backtests behind it are in `docs/backtest.md` and
