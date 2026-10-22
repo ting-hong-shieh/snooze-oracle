@@ -9,3 +9,4 @@ __pycache__/
 /drafts
 /.wrangler
 /docs/demo/*.mp4
+/docs/figures/*.ttf
