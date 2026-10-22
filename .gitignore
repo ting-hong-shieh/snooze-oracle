@@ -8,3 +8,4 @@ __pycache__/
 /out
 /drafts
 /.wrangler
+/docs/demo/*.mp4
